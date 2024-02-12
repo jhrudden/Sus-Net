@@ -47,7 +47,7 @@ class MazeEnv:
     def _generate_rooms(self):
         rooms = [(0,0)]
         room_map = defaultdict(dict)
-        for i in range(self.n_rooms-1):
+        while len(rooms) < self.n_rooms:
             random_action = np.random.choice(list(MoveAction))
             random_room = rooms[np.random.choice(len(rooms))]
             while random_action in room_map[random_room]:
