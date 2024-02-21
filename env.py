@@ -4,6 +4,7 @@ from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from gymnasium import Env, spaces
 
 class MoveAction(Enum):
     UP = 0
@@ -31,19 +32,33 @@ def reverse_action(action):
     elif action == MoveAction.RIGHT:
         return MoveAction.LEFT
 
-class MazeEnv:
-    def __init__(self, n_rooms: int, random_state: Optional[int] = None):
+class MazeEnv(Env):
+    def __init__(self, n_rooms: int, n_agents: int, random_state: Optional[int] = None):
+        super().__init__()
         assert n_rooms > 0, "Number of rooms must be greater than 0"
         if random_state is not None:
             np.random.seed(random_state)
 
         self.n_rooms = n_rooms
-        self.reset()
+        self.n_agents = n_agents
         self._generate_rooms()
+        self.reset()
 
     def reset(self):
         self.t = 0
-    
+        rooms_list = np.arange(self.n_rooms)
+        agent_pos_indices = np.random.choice(rooms_list, size=self.n_agents, replace=True)
+        self.agent_positions = [self.rooms[i] for i in agent_pos_indices]
+        job_pos_indices = np.random.choice(rooms_list, size=self.n_agents, replace=True)
+        self.job_positions = [self.rooms[i] for i in job_pos_indices]
+        self.completed_jobs = np.zeros(self.n_agents)
+        self.turn = 0
+        # TODO: Should turn be a part of the state?
+        return ((self.agent_positions, self.job_positions, self.completed_jobs), {})
+
+    def step(self, action):
+        raise NotImplementedError
+
     def _generate_rooms(self):
         rooms = [(0,0)]
         room_map = defaultdict(dict)
@@ -94,6 +109,15 @@ class MazeEnv:
                     elif action == MoveAction.RIGHT:
                         ax.add_patch(patches.Rectangle((room_center[0] + room_size / 2, room_center[1] - door_width / 2),
                                                     door_width, door_width, color='black'))
+       # Draw agents and jobs 
+        for j, job in enumerate(self.job_positions):
+            if self.completed_jobs[j] == 0:
+                ax.add_patch(patches.Circle(job, 0.3, color='green'))
+            else:
+                ax.add_patch(patches.Circle(job, 0.3, color='red'))
+
+        for agent in self.agent_positions:
+            ax.add_patch(patches.Circle(agent, 0.3, color='black', alpha=0.3))
                     
         ax.set_aspect('equal')
         plt.gca().invert_yaxis()  # Invert y-axis to match the coordinate system used in your environment
