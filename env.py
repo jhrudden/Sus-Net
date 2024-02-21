@@ -72,6 +72,7 @@ class MazeEnv(Env):
         return ((self.agent_positions, self.job_positions, self.completed_jobs, self.alive_agents), {})
 
     # TODO: Should we be turned based or just take a list of actions?
+    # TODO: Rewards should be indvidualized for each agent unless terminal state is reached
     def step(self, action):
         """
         Take a step in the environment.
