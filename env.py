@@ -61,6 +61,8 @@ class MazeEnv(Env):
         self,
         n_rooms: int,
         n_agents: int,
+        # n_crew: int,
+        # n_imposters: int,
         n_jobs: int,
         is_action_order_random=False,
         random_state: Optional[int] = None,
@@ -289,7 +291,7 @@ class MazeEnv(Env):
 
         print(room_map)
 
-    def render(self, active_agent_idx: int = None):
+    def render(self):
         fig, ax = plt.subplots()
         room_size = 0.8  # Size of the room, adjust as needed for spacing
         door_width = 0.2  # Width of the doors
@@ -379,18 +381,13 @@ class MazeEnv(Env):
                 ax.add_patch(patches.Circle(job, 0.3, color="red"))
 
         for i, agent in enumerate(self.agent_positions):
-            agent = (agent[0] - 0.5, agent[1] - 0.5)
+            image_pos = (agent[0] - 0.5, agent[1] - 0.5)
             if self.alive_agents[i] == 0:
                 ax.add_patch(patches.Circle(agent, 0.3, color="black", alpha=0.3))
             else:
-                if i == active_agent_idx:
-                    ax.add_patch(
-                        patches.Rectangle(agent, 1, 1, color="green", alpha=0.3)
-                    )
-                else:
-                    ax.add_patch(
-                        patches.Rectangle(agent, 1, 1, color="gray", alpha=0.3)
-                    )
+                ax.add_patch(
+                    patches.Rectangle(image_pos, 1, 1, color="gray", alpha=0.3)
+                )
 
         ax.set_aspect("equal")
         plt.gca().invert_yaxis()  # Invert y-axis to match the coordinate system used in your environment
