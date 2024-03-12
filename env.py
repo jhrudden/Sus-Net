@@ -60,45 +60,47 @@ class MazeEnv(Env):
     def __init__(
         self,
         n_rooms: int,
-        n_agents: int,
-        # n_crew: int,
-        # n_imposters: int,
+        n_imposters: int,
+        n_crew: int,
         n_jobs: int,
         is_action_order_random=False,
         random_state: Optional[int] = None,
         kill_reward: int = 3,
-        fix_reward: int = 1,
-        sabotage_reward: int = 1,
+        job_reward=1,
         time_step_reward: int = 0,
     ):
 
         super().__init__()
+        assert n_imposters > 0 and n_crew > 0 and n_rooms > 0 and n_jobs >= 0
+        assert n_imposters < n_crew, "Must be more crew members than imposters."
         assert n_rooms > 0, "Number of rooms must be greater than 0"
         if random_state is not None:
             np.random.seed(random_state)
 
-        self.action_space = spaces.Discrete(len(Action))
-
-        self.observation_space = spaces.Tuple(
-            (
-                spaces.MultiDiscrete([n_rooms] * n_agents),  # Agent positions
-                spaces.MultiDiscrete([n_rooms] * n_jobs),  # Job positions
-                spaces.MultiBinary(n_jobs),  # Completed jobs
-                spaces.MultiBinary(n_agents),  # Alive agents
-            )
-        )
         self.is_action_order_random = is_action_order_random
         self.n_rooms = n_rooms
-        self.n_agents = n_agents
+        self.n_imposters = n_imposters
+        self.n_crew = n_crew
+        self.n_agents = n_imposters + n_crew
         self.kill_reward = kill_reward
-        self.fix_reward = fix_reward
-        self.sabotage_reward = sabotage_reward
+        self.job_reward = job_reward
         self.time_step_reward = time_step_reward
 
         self.job_positions = None
         self.agent_positions = None
         self.alive_agents = None
         self.completed_jobs = None
+
+        self.action_space = spaces.Discrete(len(Action))
+
+        self.observation_space = spaces.Tuple(
+            (
+                spaces.MultiDiscrete([n_rooms] * self.n_agents),  # Agent positions
+                spaces.MultiDiscrete([n_rooms] * n_jobs),  # Job positions
+                spaces.MultiBinary(n_jobs),  # Completed jobs
+                spaces.MultiBinary(self.n_agents),  # Alive agents
+            )
+        )
 
         self._generate_rooms()
 
@@ -113,6 +115,8 @@ class MazeEnv(Env):
         """
 
         rooms_list = np.arange(self.n_rooms)
+
+        # first n_imposters agents are imposters
         agent_pos_indices = np.random.choice(
             rooms_list, size=self.n_agents, replace=True
         )
@@ -172,17 +176,19 @@ class MazeEnv(Env):
         for agent_idx in agent_action_order:
             self._agent_step(agent_idx=agent_idx, agent_action=agent_actions[agent_idx])
 
-        # check for terminal states
-        if np.sum(self.alive_agents) == 0:  # no living remain
+        # check for no imposters (crew members won)
+        if np.sum(self.alive_agents[: self.n_imposters]) == 0:
             done = True
 
-        # TODO: any other terminal states?
-        # NEED TO ADD internal list of imposters and crew members
-        # to determine when game ends
+        # check more or = imposters than crew (imposters won)
+        if np.sum(self.alive_agents[: self.n_imposters]) >= np.sum(
+            self.alive_agents[self.n_imposters :]
+        ):
+            done = True
 
-        # TODO: update team rewards? Maybe the function should return both, individual
-        # and team rewards and then our algorithms will handle distributing to
-        # crew members and imposters?
+        # TODO: update team rewards?
+        # - jobs done / jobs not done
+        # - imposters killed - crew members killed
 
         return (
             (
@@ -240,7 +246,7 @@ class MazeEnv(Env):
                 self.alive_agents[victim_idx] = 0
 
                 # setting rewards
-                self.agent_rewards[victim_idx] = self.kill_reward * -1
+                self.agent_rewards[victim_idx] = -1 * self.kill_reward
                 self.agent_rewards[agent_idx] = self.kill_reward
 
         # agent attempts to fix
@@ -248,14 +254,14 @@ class MazeEnv(Env):
             job_idx = self._get_job_idx_at_pos(pos)
             if job_idx is not None and not self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 1
-            self.agent_rewards[agent_idx] = self.fix_reward
+            self.agent_rewards[agent_idx] = self.job_reward
 
         # agent attempts to sabotage
         elif agent_action == Action.SABOTAGE:
             job_idx = self._get_job_idx_at_pos(pos)
             if job_idx is not None and self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 0
-            self.agent_rewards[agent_idx] = self.sabotage_reward
+            self.agent_rewards[agent_idx] = -1 * self.job_reward
 
     def _get_agents_at_pos(self, pos) -> List[int]:
         # only returns living agents
@@ -381,12 +387,17 @@ class MazeEnv(Env):
                 ax.add_patch(patches.Circle(job, 0.3, color="red"))
 
         for i, agent in enumerate(self.agent_positions):
+            if i < self.n_imposters:
+                circle_color = "blue"
+            else:
+                circle_color = "grey"
+
             image_pos = (agent[0] - 0.5, agent[1] - 0.5)
             if self.alive_agents[i] == 0:
-                ax.add_patch(patches.Circle(agent, 0.3, color="black", alpha=0.3))
+                ax.add_patch(patches.Circle(agent, 0.3, color=circle_color, alpha=0.3))
             else:
                 ax.add_patch(
-                    patches.Rectangle(image_pos, 1, 1, color="gray", alpha=0.3)
+                    patches.Rectangle(image_pos, 1, 1, color=circle_color, alpha=0.3)
                 )
 
         ax.set_aspect("equal")
