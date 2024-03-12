@@ -296,8 +296,6 @@ class MazeEnv(Env):
         self.rooms = rooms  # List[Tuple[int , int ]]
         self.room_map = room_map  # what actions you can take from the room
 
-        print(room_map)
-
     def render(self):
         fig, ax = plt.subplots()
         room_size = 0.8  # Size of the room, adjust as needed for spacing
