@@ -1,63 +1,105 @@
 from enum import Enum
 from collections import defaultdict
-from typing import Optional
+from typing import List, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from gymnasium import Env, spaces
 
 
-class MoveAction(Enum):
+class Action(Enum):
+
+    # Move Actions
     UP = 0
     DOWN = 1
     LEFT = 2
     RIGHT = 3
+    STAY = 4
+
+    # Job Actions
+    KILL = 5
+    FIX = 6
+    SABOTAGE = 7
+
+    @property
+    def is_move_action(self):
+        return self in (Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT, Action.STAY)
+
+    @property
+    def is_job_action(self):
+        return self in (Action.KILL, Action.FIX, Action.SABOTAGE)
 
 
 def move(action, position):
-    if action == MoveAction.UP:
+    if action == Action.UP:
         return (position[0], position[1] - 1)
-    elif action == MoveAction.DOWN:
+    elif action == Action.DOWN:
         return (position[0], position[1] + 1)
-    elif action == MoveAction.LEFT:
+    elif action == Action.LEFT:
         return (position[0] - 1, position[1])
-    elif action == MoveAction.RIGHT:
+    elif action == Action.RIGHT:
         return (position[0] + 1, position[1])
+    else:
+        return position
 
 
 def reverse_action(action):
-    if action == MoveAction.UP:
-        return MoveAction.DOWN
-    elif action == MoveAction.DOWN:
-        return MoveAction.UP
-    elif action == MoveAction.LEFT:
-        return MoveAction.RIGHT
-    elif action == MoveAction.RIGHT:
-        return MoveAction.LEFT
+    if action == Action.UP:
+        return Action.DOWN
+    elif action == Action.DOWN:
+        return Action.UP
+    elif action == Action.LEFT:
+        return Action.RIGHT
+    elif action == Action.RIGHT:
+        return Action.LEFT
+    elif action == Action.STAY:
+        return Action.STAY
 
 
 class MazeEnv(Env):
-    def __init__(self, n_rooms: int, n_agents: int, random_state: Optional[int] = None):
+    def __init__(
+        self,
+        n_rooms: int,
+        n_agents: int,
+        n_jobs: int,
+        is_action_order_random=False,
+        random_state: Optional[int] = None,
+        kill_reward: int = 3,
+        fix_reward: int = 1,
+        sabotage_reward: int = 1,
+        time_step_reward: int = 0,
+    ):
+
         super().__init__()
         assert n_rooms > 0, "Number of rooms must be greater than 0"
         if random_state is not None:
             np.random.seed(random_state)
 
-        self.action_space = spaces.Discrete(
-            4
-        )  # Need to change this to include KILL + FIX + SABOTAGE actions
+        self.action_space = spaces.Discrete(len(Action))
+
         self.observation_space = spaces.Tuple(
             (
-                spaces.MultiDiscrete([n_rooms, n_rooms]),  # Agent positions
-                spaces.MultiDiscrete([n_rooms, n_rooms]),  # Job positions
-                spaces.MultiBinary(n_agents),  # Completed jobs
+                spaces.MultiDiscrete([n_rooms] * n_agents),  # Agent positions
+                spaces.MultiDiscrete([n_rooms] * n_jobs),  # Job positions
+                spaces.MultiBinary(n_jobs),  # Completed jobs
                 spaces.MultiBinary(n_agents),  # Alive agents
             )
         )
-
+        self.is_action_order_random = is_action_order_random
         self.n_rooms = n_rooms
         self.n_agents = n_agents
+        self.kill_reward = kill_reward
+        self.fix_reward = fix_reward
+        self.sabotage_reward = sabotage_reward
+        self.time_step_reward = time_step_reward
+
+        self.job_positions = None
+        self.agent_positions = None
+        self.alive_agents = None
+        self.completed_jobs = None
+
         self._generate_rooms()
+
         self.reset()
 
     def reset(self):
@@ -67,7 +109,7 @@ class MazeEnv(Env):
         Returns:
         Tuple: A tuple containing the initial state and an empty dictionary
         """
-        self.t = 0
+
         rooms_list = np.arange(self.n_rooms)
         agent_pos_indices = np.random.choice(
             rooms_list, size=self.n_agents, replace=True
@@ -77,8 +119,6 @@ class MazeEnv(Env):
         self.alive_agents = np.ones(self.n_agents)
         self.job_positions = [self.rooms[i] for i in job_pos_indices]
         self.completed_jobs = np.zeros(self.n_agents)
-        self.turn = 0
-        # TODO: Should turn be a part of the state?
         return (
             (
                 self.agent_positions,
@@ -89,43 +129,58 @@ class MazeEnv(Env):
             {},
         )
 
-    # TODO: Should we be turned based or just take a list of actions?
-    # TODO: Rewards should be indvidualized for each agent unless terminal state is reached
-    def step(self, action):
+    def step(self, agent_actions):
         """
-        Take a step in the environment.
+        Executes a step in the environment by applying the actions of all agents and updating the environment's state accordingly.
+
+        This function processes each agent's action in a specified or random order, updates the agents' positions,
+        handles interactions such as kills, fixes, and sabotages, and determines whether the game reaches a
+        terminal state based on the conditions of alive agents or completed objectives.
+
+        Parameters:
+        - agent_actions (list or dict): A collection of actions for each agent to take during this step.
+            The actions should be indexed by the agent's index in the list.
+
+        Returns:
+        - tuple containing:
+            - A tuple of (agent_posions, jtiob_positions, completed_jobs, alive_agents) reflecting the new state of the environment.
+            - agent_rewards (numpy.ndarray): An array of rewards received by each agent during this step.
+            - done (bool): A flag indicating whether the game has reached a terminal state.
+            - truncated (bool): A flag indicating whether the episode was truncated (not applicable in this context, but included for API consistency).
+            - info (dict): An empty dictionary that could be used for debugging or logging additional information in the future.
+
+        Side Effects:
+        - Updates `self.agent_positions` based on the actions that involve movement.
+        - Modifies `self.completed_jobs` and `self.alive_agents` based on actions that involve fixing, sabotaging, or killing.
+        - Alters `self.agent_rewards` to reflect the rewards accumulated by each agent during this step.
         """
+
         truncated = False
         done = False
-        if np.sum(self.alive_agents) == 0:
-            # all agents are dead
-            reward = -1
+
+        # initialize the agent reward array before computing all agent rewards
+        self.agent_rewards = np.ones(self.n_agents) * self.time_step_reward
+
+        # getting the order in which agent actions will be performed
+        agent_action_order = list(range(self.n_agents))
+        if self.is_action_order_random:
+            np.random.shuffle(agent_action_order)
+
+        # perform action for each agent
+        for agent_idx in agent_action_order:
+            self._agent_step(agent_idx=agent_idx, agent_action=agent_actions[agent_idx])
+
+        # check for terminal states
+        if np.sum(self.alive_agents) == 0:  # no living remain
             done = True
 
-        elif np.sum(self.completed_jobs) == self.n_agents:
-            # all jobs are completed
-            reward = 1
-            done = True
+        # TODO: any other terminal states?
+        # NEED TO ADD internal list of imposters and crew members
+        # to determine when game ends
 
-        elif self.alive_agents[self.turn] == 0:
-            # agent is dead
-            reward = -1
-        else:
-            # agent is alive
-            # TODO: Need to handle non-move actions
-            reward = 0
-            pos = self.agent_positions[self.turn]
-            if action in self.room_map[pos]:
-                self.agent_positions[self.turn] = self.room_map[pos][action]
-            else:
-                # do nothing
-                pass
-
-        # increment the turn
-        self.turn = (self.turn + 1) % self.n_agents
-
-        # TODO: Need to check if t is incremented by a wrapper or if we need to do it here
-        self.t += 1
+        # TODO: update team rewards? Maybe the function should return both, individual
+        # and team rewards and then our algorithms will handle distributing to
+        # crew members and imposters?
 
         return (
             (
@@ -134,30 +189,107 @@ class MazeEnv(Env):
                 self.completed_jobs,
                 self.alive_agents,
             ),
-            reward,
+            self.agent_rewards,
             done,
             truncated,
             {},
         )
 
+    def _agent_step(self, agent_idx, agent_action) -> None:
+        """
+        Processes a single step for an agent by executing the specified action within the environment.
+
+        This method handles the movement, killing, fixing, and sabotaging actions of an agent.
+        Movement is allowed based on the room map, killing removes another agent at the same position,
+        fixing completes a job at the agent's position, and sabotaging undoes a completed job at the agent's position.
+        Rewards or penalties are assigned to agents based on their actions.
+
+        Parameters:
+        - agent_idx (int): Index of the agent performing the action.
+        - agent_action (Action): The action to be performed by the agent.
+            This is an instance of an Action enumeration that includes MOVE, KILL, FIX, and SABOTAGE actions.
+        """
+
+        print(f"{agent_idx}: {agent_action}")
+
+        if self.alive_agents[agent_idx] == 0:  # agent is dead
+            return
+
+        # get agent position
+        pos = self.agent_positions[agent_idx]
+
+        # moving the agent position
+        if agent_action.is_move_action:
+            if agent_action in self.room_map[pos]:
+                self.agent_positions[agent_idx] = self.room_map[pos][agent_action]
+
+        # agent attempts kill action
+        elif agent_action == Action.KILL:
+
+            # who else is at this position
+            agents_at_pos = self._get_agents_at_pos(pos)
+            agents_at_pos.remove(agent_idx)
+
+            if agents_at_pos:
+                # choosing random victim
+                victim_idx = np.random.choice(agents_at_pos)
+
+                # updating alive list
+                self.alive_agents[victim_idx] = 0
+
+                # setting rewards
+                self.agent_rewards[victim_idx] = self.kill_reward * -1
+                self.agent_rewards[agent_idx] = self.kill_reward
+
+        # agent attempts to fix
+        elif agent_action == Action.FIX:
+            job_idx = self._get_job_idx_at_pos(pos)
+            if job_idx is not None and not self.completed_jobs[job_idx]:
+                self.completed_jobs[job_idx] = 1
+            self.agent_rewards[agent_idx] = self.fix_reward
+
+        # agent attempts to sabotage
+        elif agent_action == Action.SABOTAGE:
+            job_idx = self._get_job_idx_at_pos(pos)
+            if job_idx is not None and self.completed_jobs[job_idx]:
+                self.completed_jobs[job_idx] = 0
+            self.agent_rewards[agent_idx] = self.sabotage_reward
+
+    def _get_agents_at_pos(self, pos) -> List[int]:
+        # only returns living agents
+        return [
+            i
+            for i, val in enumerate(self.agent_positions)
+            if val == pos and self.alive_agents[i]
+        ]
+
+    def _get_job_idx_at_pos(self, pos) -> int | None:
+        for job_idx, job_pos in enumerate(self.job_positions):
+            if job_pos == pos:
+                return job_idx
+        return None
+
     def _generate_rooms(self):
         rooms = [(0, 0)]
         room_map = defaultdict(dict)
         while len(rooms) < self.n_rooms:
-            random_action = np.random.choice(list(MoveAction))
+            random_action = np.random.choice(list(Action))
             random_room = rooms[np.random.choice(len(rooms))]
             while random_action in room_map[random_room]:
                 random_room = rooms[np.random.choice(len(rooms))]
-                random_action = np.random.choice(list(MoveAction))
+                random_action = np.random.choice(list(Action))
             new_room = move(random_action, random_room)
             if new_room not in rooms:
                 rooms.append(new_room)
             room_map[random_room][random_action] = new_room
             room_map[new_room][reverse_action(random_action)] = random_room
-        self.rooms = rooms
-        self.room_map = room_map
 
-    def render(self):
+        self.rooms = rooms  # List[Tuple[int , int ]]
+        self.room_map = room_map  # what actions you can take from the room
+
+        print(room_map)
+
+    def render(self, active_agent_idx: int = None):
         fig, ax = plt.subplots()
         room_size = 0.8  # Size of the room, adjust as needed for spacing
         door_width = 0.2  # Width of the doors
@@ -185,7 +317,7 @@ class MazeEnv(Env):
             # For each connected room, draw a doorway
             if room in self.room_map:
                 for action, next_room in self.room_map[room].items():
-                    if action == MoveAction.UP:
+                    if action == Action.UP:
                         # Door on the bottom edge (visually appears at the bottom because we're not changing the x-coordinate)
 
                         ax.add_patch(
@@ -199,7 +331,7 @@ class MazeEnv(Env):
                                 color="black",
                             )
                         )
-                    elif action == MoveAction.DOWN:
+                    elif action == Action.DOWN:
                         # Door on the top edge (visually appears at the top because we're not changing the x-coordinate)
                         ax.add_patch(
                             patches.Rectangle(
@@ -212,7 +344,7 @@ class MazeEnv(Env):
                                 color="black",
                             )
                         )
-                    elif action == MoveAction.LEFT:
+                    elif action == Action.LEFT:
                         # Door on the right edge
                         ax.add_patch(
                             patches.Rectangle(
@@ -225,7 +357,7 @@ class MazeEnv(Env):
                                 color="black",
                             )
                         )
-                    elif action == MoveAction.RIGHT:
+                    elif action == Action.RIGHT:
                         # Door on the left edge
                         ax.add_patch(
                             patches.Rectangle(
@@ -251,7 +383,7 @@ class MazeEnv(Env):
             if self.alive_agents[i] == 0:
                 ax.add_patch(patches.Circle(agent, 0.3, color="black", alpha=0.3))
             else:
-                if i == self.turn:
+                if i == active_agent_idx:
                     ax.add_patch(
                         patches.Rectangle(agent, 1, 1, color="green", alpha=0.3)
                     )
