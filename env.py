@@ -65,9 +65,10 @@ class MazeEnv(Env):
         n_jobs: int,
         is_action_order_random=False,
         random_state: Optional[int] = None,
-        kill_reward: int = 3,
+        kill_reward: int = -3,
         job_reward=1,
         time_step_reward: int = 0,
+        game_end_reward: int = 10,
     ):
 
         super().__init__()
@@ -85,6 +86,7 @@ class MazeEnv(Env):
         self.kill_reward = kill_reward
         self.job_reward = job_reward
         self.time_step_reward = time_step_reward
+        self.game_end_reward = game_end_reward
 
         self.job_positions = None
         self.agent_positions = None
@@ -166,6 +168,7 @@ class MazeEnv(Env):
 
         # initialize the agent reward array before computing all agent rewards
         self.agent_rewards = np.ones(self.n_agents) * self.time_step_reward
+        team_reward = 0
 
         # getting the order in which agent actions will be performed
         agent_action_order = list(range(self.n_agents))
@@ -179,16 +182,14 @@ class MazeEnv(Env):
         # check for no imposters (crew members won)
         if np.sum(self.alive_agents[: self.n_imposters]) == 0:
             done = True
+            team_reward = self.game_end_reward
 
         # check more or = imposters than crew (imposters won)
         if np.sum(self.alive_agents[: self.n_imposters]) >= np.sum(
             self.alive_agents[self.n_imposters :]
         ):
+            team_reward = -1 * self.game_end_reward
             done = True
-
-        # TODO: update team rewards?
-        # - jobs done / jobs not done
-        # - imposters killed - crew members killed
 
         return (
             (
@@ -197,7 +198,7 @@ class MazeEnv(Env):
                 self.completed_jobs,
                 self.alive_agents,
             ),
-            self.agent_rewards,
+            (self.agent_rewards, team_reward),
             done,
             truncated,
             {},
@@ -246,7 +247,7 @@ class MazeEnv(Env):
                 self.alive_agents[victim_idx] = 0
 
                 # setting rewards
-                self.agent_rewards[victim_idx] = -1 * self.kill_reward
+                self.agent_rewards[victim_idx] = self.kill_reward
                 self.agent_rewards[agent_idx] = self.kill_reward
 
         # agent attempts to fix
