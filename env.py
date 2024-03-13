@@ -6,6 +6,32 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from gymnasium import Env, spaces
 
+"""
+TODO:
+- Action ordering choice:
+    - Current implementation, but always random order each timestep
+    - Step takes agent by agent, and returns next state + reward, where next state gets passed to next agent
+    - All actions are taken at the same time, so always reference initial state for each agent instead of updated state based on order
+- should self.time_step_reward depend on the agents job? (1 for imposters, -1 for crew members)
+
+- Jobs require multiple time steps to complete
+   - any action besides Fix or Sabotage will not have an immediate effect (but resets the timer)
+   - Fixing a job will take 3 time steps to complete (BASE)
+   - Sabotaging or fixing a job doesn't do anything unless job is in a good state
+
+- Instead of voting, add tag count to state
+    - Every x timesteps, tag counts are reset
+    - An agent can tag 1 other person, and the tagged person get's their count increased by 1
+    - At end of x timesteps, if tag count of an agent > half the # agents, the agent dies
+    - Tag count is reset when an agent dies or when the timer resets
+
+
+- Who am I? Which agent am I? 
+    - Need to figure out who the agent is in the state
+    - Q looks like Q(s_{agent}, s_{whole}, a_{agent}) 
+
+"""
+
 
 class Action(Enum):
 
@@ -63,7 +89,7 @@ class MazeEnv(Env):
         n_imposters: int,
         n_crew: int,
         n_jobs: int,
-        is_action_order_random=False,
+        is_action_order_random=True,
         random_state: Optional[int] = None,
         kill_reward: int = -3,
         job_reward=1,
