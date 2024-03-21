@@ -58,9 +58,9 @@ class Action(Enum):
 
 def move(action, position):
     if action == Action.UP:
-        return (position[0], position[1] - 1)
-    elif action == Action.DOWN:
         return (position[0], position[1] + 1)
+    elif action == Action.DOWN:
+        return (position[0], position[1] - 1)
     elif action == Action.LEFT:
         return (position[0] - 1, position[1])
     elif action == Action.RIGHT:
@@ -82,10 +82,9 @@ def reverse_action(action):
         return Action.STAY
 
 
-class MazeEnv(Env):
+class FourRoomEnv(Env):
     def __init__(
         self,
-        n_rooms: int,
         n_imposters: int,
         n_crew: int,
         n_jobs: int,
@@ -96,19 +95,20 @@ class MazeEnv(Env):
         time_step_reward: int = 0,
         game_end_reward: int = 10,
     ):
-
         super().__init__()
-        assert n_imposters > 0 and n_crew > 0 and n_rooms > 0 and n_jobs >= 0
-        assert n_imposters < n_crew, "Must be more crew members than imposters."
-        assert n_rooms > 0, "Number of rooms must be greater than 0"
+
+        self._validate_init_args(
+            n_imposters, n_crew, n_jobs
+        )
+
         if random_state is not None:
             np.random.seed(random_state)
 
         self.is_action_order_random = is_action_order_random
-        self.n_rooms = n_rooms
         self.n_imposters = n_imposters
         self.n_crew = n_crew
         self.n_agents = n_imposters + n_crew
+        self.n_jobs = n_jobs
         self.kill_reward = kill_reward
         self.job_reward = job_reward
         self.time_step_reward = time_step_reward
@@ -119,40 +119,92 @@ class MazeEnv(Env):
         self.alive_agents = None
         self.completed_jobs = None
 
+
+        # NOTE: This is the 2D grid of 4 rooms that we saw in the previous examples however, no goal and start states are defined
+        # Coordinate system is (x, y) where x is the horizontal and y is the vertical direction
+        self.walls = [
+            (0, 5),
+            (2, 5),
+            (3, 5),
+            (4, 5),
+            (5, 0),
+            (5, 2),
+            (5, 3),
+            (5, 4),
+            (5, 5),
+            (5, 6),
+            (5, 7),
+            (5, 9),
+            (5, 10),
+            (6, 4),
+            (7, 4),
+            (9, 4),
+            (10, 4),
+        ]
+
+        self.n_rows = 11
+        self.n_cols = 11
+
+        self.valid_positions = [
+            (x, y)
+            for x in range(11)
+            for y in range(11)
+            if (x, y) not in self.walls
+        ]
+
         self.action_space = spaces.Discrete(len(Action))
 
         self.observation_space = spaces.Tuple(
             (
-                spaces.MultiDiscrete([n_rooms] * self.n_agents),  # Agent positions
-                spaces.MultiDiscrete([n_rooms] * n_jobs),  # Job positions
-                spaces.MultiBinary(n_jobs),  # Completed jobs
+                spaces.MultiDiscrete([self.n_rows, self.n_cols] * self.n_agents),  # Agent positions
+                spaces.MultiDiscrete([self.n_rows, self.n_cols] * self.n_jobs),  # Job positions
+                spaces.MultiBinary(self.n_jobs),  # Completed jobs
                 spaces.MultiBinary(self.n_agents),  # Alive agents
             )
         )
 
-        self._generate_rooms()
-
         self.reset()
+    
+    def _validate_init_args(self, n_imposters, n_crew, n_jobs):
+        assert n_imposters > 0, f"Must have at least one imposter. Got {n_imposters}."
+        assert n_crew > 0, f"Must have at least one crew member. Got {n_crew}."
+        assert n_jobs > 0, f"Must have at least one job. Got {n_jobs}."
+        assert n_imposters < n_crew, f"Must be more crew members than imposters. Got {n_imposters} imposters and {n_crew} crew members."
 
-    def reset(self):
+
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
         Reset the environment to the initial state
 
+        Specifically, this method sets:
+        - The agent positions to random locations in the environment
+        - The job positions to random locations in the environment
+        - The completed jobs to all zeros
+        - The alive agents to all ones
+
+        Args:
+        - seed (int): An optional seed to use for the random number generator.
         Returns:
         Tuple: A tuple containing the initial state and an empty dictionary
         """
+        if seed is not None:
+            np.random.seed(seed)
 
-        rooms_list = np.arange(self.n_rooms)
+        # Select agent and job positions randomly from the valid positions
 
-        # first n_imposters agents are imposters
-        agent_pos_indices = np.random.choice(
-            rooms_list, size=self.n_agents, replace=True
-        )
-        self.agent_positions = [self.rooms[i] for i in agent_pos_indices]
-        job_pos_indices = np.random.choice(rooms_list, size=self.n_agents, replace=True)
+        # random agent positions
+        agent_cells = np.random.choice(len(self.valid_positions), size=self.n_agents, replace=True)
+        self.agent_positions = [self.valid_positions[cell] for cell in agent_cells]
+
+        # random job positions
+        # NOTE: any two jobs can't be at the same position
+        job_cells = np.random.choice(len(self.valid_positions), size=self.n_jobs, replace=False)
+        self.job_positions = [self.valid_positions[cell] for cell in job_cells]
+
+
         self.alive_agents = np.ones(self.n_agents)
-        self.job_positions = [self.rooms[i] for i in job_pos_indices]
-        self.completed_jobs = np.zeros(self.n_agents)
+        self.completed_jobs = np.zeros(self.n_jobs)
+
         return (
             (
                 self.agent_positions,
@@ -203,13 +255,16 @@ class MazeEnv(Env):
 
         # perform action for each agent
         for agent_idx in agent_action_order:
+            print(f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}")
             self._agent_step(agent_idx=agent_idx, agent_action=agent_actions[agent_idx])
 
+        # TODO: Should we shuffle imposters and crew members and store their locations in the env implicitly?
         # check for no imposters (crew members won)
         if np.sum(self.alive_agents[: self.n_imposters]) == 0:
             done = True
             team_reward = self.game_end_reward
 
+        # TODO: Same as above note
         # check more or = imposters than crew (imposters won)
         if np.sum(self.alive_agents[: self.n_imposters]) >= np.sum(
             self.alive_agents[self.n_imposters :]
@@ -255,8 +310,9 @@ class MazeEnv(Env):
 
         # moving the agent position
         if agent_action.is_move_action:
-            if agent_action in self.room_map[pos]:
-                self.agent_positions[agent_idx] = self.room_map[pos][agent_action]
+            new_pos = move(agent_action, pos)
+            if self._is_valid_position(new_pos):
+                self.agent_positions[agent_idx] = new_pos
 
         # agent attempts kill action
         elif agent_action == Action.KILL:
@@ -303,132 +359,52 @@ class MazeEnv(Env):
             if job_pos == pos:
                 return job_idx
         return None
-
-    def _generate_rooms(self):
-        rooms = [(0, 0)]
-        room_map = defaultdict(dict)
-        while len(rooms) < self.n_rooms:
-            random_action = np.random.choice(list(Action))
-            random_room = rooms[np.random.choice(len(rooms))]
-            while random_action in room_map[random_room]:
-                random_room = rooms[np.random.choice(len(rooms))]
-                random_action = np.random.choice(list(Action))
-            new_room = move(random_action, random_room)
-            if new_room not in rooms:
-                rooms.append(new_room)
-            room_map[random_room][random_action] = new_room
-            room_map[new_room][reverse_action(random_action)] = random_room
-
-        self.rooms = rooms  # List[Tuple[int , int ]]
-        self.room_map = room_map  # what actions you can take from the room
-
+    
+    def _is_valid_position(self, pos):
+        return pos not in self.walls and 0 <= pos[0] < self.n_cols and 0 <= pos[1] < self.n_rows
+    
     def render(self):
-        fig, ax = plt.subplots()
-        room_size = 0.8  # Size of the room, adjust as needed for spacing
-        door_width = 0.2  # Width of the doors
+        """
+        Use matplotlib to render the current state of the environment.
 
-        # Set limits based on the room positions
-        all_x = [x for x, y in self.rooms]
-        all_y = [y for x, y in self.rooms]
-        ax.set_xlim(min(all_x) - 1, max(all_x) + 1)
-        ax.set_ylim(min(all_y) - 1, max(all_y) + 1)
+        This method draws the current state of the environment using a 2D grid of cells.
+        The walls are drawn in black, the agents are drawn in blue, the jobs are drawn in green,
+        and the completed jobs are drawn in red.
+        """
 
-        # Draw each room and its connections
-        for room in self.rooms:
-            room_center = (room[0], room[1])
-            # Draw room as a square
-            ax.add_patch(
-                patches.Rectangle(
-                    (room_center[0] - room_size / 2, room_center[1] - room_size / 2),
-                    room_size,
-                    room_size,
-                    fill=None,
-                    edgecolor="black",
-                )
-            )
+        # this should be a 2D grid of cells with the following colors:
+        # - black for walls
+        # - blue for crew
+        # - red for imposters
+        # - green for yellow
+        # - grey for completed jobs
+        # - white for empty cells
+        grid = np.zeros((self.n_rows, self.n_cols, 3))
 
-            # For each connected room, draw a doorway
-            if room in self.room_map:
-                for action, next_room in self.room_map[room].items():
-                    if action == Action.UP:
-                        # Door on the bottom edge (visually appears at the bottom because we're not changing the x-coordinate)
+        for i in range(self.n_rows):
+            for j in range(self.n_cols):
+                grid[i, j] = [1, 1, 1]
 
-                        ax.add_patch(
-                            patches.Rectangle(
-                                (
-                                    room_center[0] - door_width / 2,
-                                    room_center[1] - room_size / 2 - door_width,
-                                ),
-                                door_width,
-                                door_width,
-                                color="black",
-                            )
-                        )
-                    elif action == Action.DOWN:
-                        # Door on the top edge (visually appears at the top because we're not changing the x-coordinate)
-                        ax.add_patch(
-                            patches.Rectangle(
-                                (
-                                    room_center[0] - door_width / 2,
-                                    room_center[1] + room_size / 2,
-                                ),
-                                door_width,
-                                door_width,
-                                color="black",
-                            )
-                        )
-                    elif action == Action.LEFT:
-                        # Door on the right edge
-                        ax.add_patch(
-                            patches.Rectangle(
-                                (
-                                    room_center[0] - room_size / 2 - door_width,
-                                    room_center[1] - door_width / 2,
-                                ),
-                                door_width,
-                                door_width,
-                                color="black",
-                            )
-                        )
-                    elif action == Action.RIGHT:
-                        # Door on the left edge
-                        ax.add_patch(
-                            patches.Rectangle(
-                                (
-                                    room_center[0] + room_size / 2,
-                                    room_center[1] - door_width / 2,
-                                ),
-                                door_width,
-                                door_width,
-                                color="black",
-                            )
-                        )
+        # draw walls
+        for wall in self.walls:
+            grid[wall[1], wall[0]] = [0, 0, 0]
+        
+        # draw jobs
+        for job in self.job_positions:
+            grid[job[1], job[0]] = [0, 1, 0]
+        
+        # draw completed jobs
+        for job_idx, completed in enumerate(self.completed_jobs):
+            job = self.job_positions[job_idx]
+            grid[job[1], job[0]] = [1, 0, 0] if completed else [0, 1, 0]
+            
+        # draw agents
+        for agent_idx, pos in enumerate(self.agent_positions):
+            if self.alive_agents[agent_idx]:
+                grid[pos[1], pos[0]] = [0, 0, 1]
 
-        # Draw agents and jobs
-        for j, job in enumerate(self.job_positions):
-            if self.completed_jobs[j] == 0:
-                ax.add_patch(patches.Circle(job, 0.3, color="yellow"))
-            else:
-                ax.add_patch(patches.Circle(job, 0.3, color="red"))
+        # flip the grid to match the coordinate system
+        grid = np.flip(grid, 0)
 
-        for i, agent in enumerate(self.agent_positions):
-            if i < self.n_imposters:
-                circle_color = "blue"
-            else:
-                circle_color = "grey"
-
-            image_pos = (agent[0] - 0.5, agent[1] - 0.5)
-            if self.alive_agents[i] == 0:
-                ax.add_patch(patches.Circle(agent, 0.3, color=circle_color, alpha=0.3))
-            else:
-                ax.add_patch(
-                    patches.Rectangle(image_pos, 1, 1, color=circle_color, alpha=0.3)
-                )
-
-        ax.set_aspect("equal")
-        plt.gca().invert_yaxis()  # Invert y-axis to match the coordinate system used in your environment
-        plt.axis("off")  # Optionally hide the axis
-        plt.title(
-            f"Maze with {self.n_rooms} rooms (random seed: {np.random.get_state()[1][0]})"
-        )
+        plt.imshow(grid)
         plt.show()
