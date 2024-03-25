@@ -427,12 +427,13 @@ class FourRoomEnv(Env):
         plt.show()
 
 class FourRoomEnvWithTagging(FourRoomEnv):
-    def __init__(self, *args, tag_reset_interval=10, **kwargs):
+    def __init__(self, *args, tag_reset_interval: int = 10, vote_reward: int = 3, **kwargs):
         super().__init__(*args, **kwargs)
         self.tag_counts = np.zeros(self.n_agents)
         self.used_tag_actions = np.zeros(self.n_agents)
         self.tag_reset_timer = 0
         self.tag_reset_interval = tag_reset_interval
+        self.vote_reward = vote_reward
 
         self.action_space = spaces.Discrete(len(Action) + self.n_agents) # Add tagging action (1 for each agent)
 
@@ -488,6 +489,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             truncated = False
             done = False
             reset_tag_counts = False
+            team_reward = 0
 
             # initialize the agent reward array before computing all agent rewards
             self.agent_rewards = np.ones(self.n_agents) * self.time_step_reward
@@ -513,11 +515,15 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             for agent_idx, tag_count in enumerate(self.tag_counts):
                 if tag_count > self.n_agents // 2:
                     self.alive_agents[agent_idx] = 0
-                    self.agent_rewards[agent_idx] = 0 # TODO: Do killed agents get a reward?
+                    self.agent_rewards[agent_idx] = -self.kill_reward # NOTE: overriding the reward for the agent who was tagged too many times
 
-                    # TODO: Should we ...
+                    # NOTE: reward / punishment for the team based on the role of kicked agent
                     # If agent is a crew member, imposters get a reward
                     # If agent is an imposter, crew members get a reward
+                    if agent_idx < self.n_imposters:
+                        team_reward += self.vote_reward
+                    else:
+                        team_reward -= self.vote_reward
 
                     reset_tag_counts = True
                 
@@ -528,7 +534,8 @@ class FourRoomEnvWithTagging(FourRoomEnv):
                 self.used_tag_actions = np.zeros(self.n_agents)
                 self.tag_reset_timer = 0
 
-            team_win, team_reward = self.check_win_condition()
+            team_win, win_team_reward = self.check_win_condition()
+            team_reward += win_team_reward
             done = done or team_win
 
             return (
