@@ -229,7 +229,7 @@ class FourRoomEnv(Env):
 
         Returns:
         - tuple containing:
-            - A tuple of (agent_posions, jtiob_positions, completed_jobs, alive_agents) reflecting the new state of the environment.
+            - A tuple of (agent_positions, job_positions, completed_jobs, alive_agents) reflecting the new state of the environment.
             - agent_rewards (numpy.ndarray): An array of rewards received by each agent during this step.
             - done (bool): A flag indicating whether the game has reached a terminal state.
             - truncated (bool): A flag indicating whether the episode was truncated (not applicable in this context, but included for API consistency).
@@ -240,13 +240,14 @@ class FourRoomEnv(Env):
         - Modifies `self.completed_jobs` and `self.alive_agents` based on actions that involve fixing, sabotaging, or killing.
         - Alters `self.agent_rewards` to reflect the rewards accumulated by each agent during this step.
         """
+        assert len(agent_actions) == self.n_agents, f"Expected {self.n_agents} actions, got {len(agent_actions)}"
+        assert all(action < self.action_space.n for action in agent_actions), f"Invalid action(s) {agent_actions}"
 
         truncated = False
         done = False
 
         # initialize the agent reward array before computing all agent rewards
         self.agent_rewards = np.ones(self.n_agents) * self.time_step_reward
-        team_reward = 0
 
         # getting the order in which agent actions will be performed
         agent_action_order = list(range(self.n_agents))
@@ -258,19 +259,8 @@ class FourRoomEnv(Env):
             print(f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}")
             self._agent_step(agent_idx=agent_idx, agent_action=agent_actions[agent_idx])
 
-        # TODO: Should we shuffle imposters and crew members and store their locations in the env implicitly?
-        # check for no imposters (crew members won)
-        if np.sum(self.alive_agents[: self.n_imposters]) == 0:
-            done = True
-            team_reward = self.game_end_reward
-
-        # TODO: Same as above note
-        # check more or = imposters than crew (imposters won)
-        if np.sum(self.alive_agents[: self.n_imposters]) >= np.sum(
-            self.alive_agents[self.n_imposters :]
-        ):
-            team_reward = -1 * self.game_end_reward
-            done = True
+        team_win, team_reward = self.check_win_condition()
+        done = done or team_win
 
         return (
             (
@@ -284,7 +274,34 @@ class FourRoomEnv(Env):
             truncated,
             {},
         )
+    
+    def check_win_condition(self):
+        """
+        Checks if the game has reached a terminal state and returns the reward for each agent.
 
+        This method checks the win conditions of the game to determine if the game has reached a terminal state.
+        The game ends when all imposters are killed or when the number of imposters is greater than or equal to the number of crew members.
+        The team reward is calculated based on the win condition.
+
+        Returns:
+        - tuple containing:
+            - A boolean indicating whether the game has reached a terminal state.
+            - Team reward
+        """
+
+        # NOTE: We might need to know the role of agents for this...
+        # check for no imposters (crew members won)
+        if np.sum(self.alive_agents[: self.n_imposters]) == 0:
+            return True, self.game_end_reward
+
+        # check more or = imposters than crew (imposters won)
+        if np.sum(self.alive_agents[: self.n_imposters]) >= np.sum(
+            self.alive_agents[self.n_imposters :]
+        ):
+            return True, -1 * self.game_end_reward
+
+        return False, 0
+    
     def _agent_step(self, agent_idx, agent_action) -> None:
         """
         Processes a single step for an agent by executing the specified action within the environment.
@@ -408,3 +425,123 @@ class FourRoomEnv(Env):
 
         plt.imshow(grid)
         plt.show()
+
+class FourRoomEnvWithTagging(FourRoomEnv):
+    def __init__(self, *args, tag_reset_interval=10, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tag_counts = np.zeros(self.n_agents)
+        self.used_tag_actions = np.zeros(self.n_agents)
+        self.tag_reset_timer = 0
+        self.tag_reset_interval = tag_reset_interval
+
+        self.action_space = spaces.Discrete(len(Action) + self.n_agents) # Add tagging action (1 for each agent)
+
+        self.observation_space = spaces.Tuple(
+            (
+                spaces.MultiDiscrete([self.n_rows, self.n_cols] * self.n_agents),  # Agent positions
+                spaces.MultiDiscrete([self.n_rows, self.n_cols] * self.n_jobs),  # Job positions
+                spaces.MultiBinary(self.n_jobs),  # Completed jobs
+                spaces.MultiBinary(self.n_agents),  # Alive agents
+                spaces.MultiBinary(self.n_agents),  # Who has used their tag
+                spaces.Discrete(self.tag_reset_interval)
+                # NOTE: Timer for resetting tag counts
+            )
+        )
+    
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
+        state, _ = super().reset(seed, options)
+        self.tag_counts = np.zeros(self.n_agents)
+        self.used_tag_actions = np.zeros(self.n_agents)
+        self.tag_reset_timer = 0
+        return state
+    
+    def step(self, agent_actions):
+            """
+            Executes a step in the environment by applying the actions of all agents and updating the environment's state accordingly.
+
+            This function processes each agent's action in a specified or random order, updates the agents' positions,
+            handles interactions such as kills, fixes, tagging, and sabotages, and determines whether the game reaches a
+            terminal state based on the conditions of alive agents or completed objectives.
+
+            Parameters:
+            - agent_actions (list or dict): A collection of actions for each agent to take during this step.
+                The actions should be indexed by the agent's index in the list.
+
+            Returns:
+            - tuple containing:
+                - A tuple of (agent_position, job_positions, completed_jobs, alive_agents, agent_tag_count, time_till_vote_reset) reflecting the new state of the environment.
+                - agent_rewards (numpy.ndarray): An array of rewards received by each agent during this step.
+                - done (bool): A flag indicating whether the game has reached a terminal state.
+                - truncated (bool): A flag indicating whether the episode was truncated (not applicable in this context, but included for API consistency).
+                - info (dict): An empty dictionary that could be used for debugging or logging additional information in the future.
+
+            Side Effects:
+            - Updates `self.agent_positions` based on the actions that involve movement. Also updates `self.tag_reset_timer` at the start of the step.
+            - Modifies `self.completed_jobs`, `self.tag_counts`, `self.used_tag_action` and `self.alive_agents` based on actions that involve fixing, sabotaging, tagging or killing.
+            - Alters `self.agent_rewards` to reflect the rewards accumulated by each agent during this step.
+            """
+            assert len(agent_actions) == self.n_agents, f"Expected {self.n_agents} actions, got {len(agent_actions)}"
+            assert all(action < self.action_space.n for action in agent_actions), f"Invalid action(s) {agent_actions}"
+
+            # kill agents who have been tagged too many times (tag count > half the number of agents)
+
+            truncated = False
+            done = False
+            reset_tag_counts = False
+
+            # initialize the agent reward array before computing all agent rewards
+            self.agent_rewards = np.ones(self.n_agents) * self.time_step_reward
+
+            # getting the order in which agent actions will be performed
+            agent_action_order = list(range(self.n_agents))
+            if self.is_action_order_random:
+                np.random.shuffle(agent_action_order)
+
+            # perform action for each agent
+            for agent_idx in agent_action_order:
+                if agent_actions[agent_idx] > len(Action) and self.used_tag_actions[agent_idx] == 0:
+                    tagged_agent_idx = agent_actions[agent_idx] - len(Action)
+                    print(f"Agent {agent_idx} is tagging agent {tagged_agent_idx}")
+                    self.tag_counts[tagged_agent_idx] += 1
+                    self.used_tag_actions[agent_idx] = 1
+                else:
+                    print(f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}")
+                    self._agent_step(agent_idx=agent_idx, agent_action=agent_actions[agent_idx])
+
+            
+            # Check if any agent has been tagged too many times
+            for agent_idx, tag_count in enumerate(self.tag_counts):
+                if tag_count > self.n_agents // 2:
+                    self.alive_agents[agent_idx] = 0
+                    self.agent_rewards[agent_idx] = 0 # TODO: Do killed agents get a reward?
+
+                    # TODO: Should we ...
+                    # If agent is a crew member, imposters get a reward
+                    # If agent is an imposter, crew members get a reward
+
+                    reset_tag_counts = True
+                
+            self.tag_reset_timer += 1
+            
+            if reset_tag_counts or self.tag_reset_timer >= self.tag_reset_interval:
+                self.tag_counts = np.zeros(self.n_agents)
+                self.used_tag_actions = np.zeros(self.n_agents)
+                self.tag_reset_timer = 0
+
+            team_win, team_reward = self.check_win_condition()
+            done = done or team_win
+
+            return (
+                (
+                    self.agent_positions,
+                    self.job_positions,
+                    self.completed_jobs,
+                    self.alive_agents,
+                    self.used_tag_actions, # Who has used their tag
+                    self.tag_reset_interval - self.tag_reset_timer # Time left for tag reset
+                ),
+                (self.agent_rewards, team_reward),
+                done,
+                truncated,
+                {},
+            )
