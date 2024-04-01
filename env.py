@@ -26,9 +26,11 @@ TODO:
     - Tag count is reset when an agent dies or when the timer resets
 
 
-- Who am I? Which agent am I? 
+- Who am I? Which agent am I? #NOTE: AgentState class is used for this right now.
     - Need to figure out who the agent is in the state
     - Q looks like Q(s_{agent}, s_{whole}, a_{agent}) 
+
+- #TODO: Should step function return a list of AgentState?
 
 """
 
@@ -80,6 +82,59 @@ def reverse_action(action):
         return Action.LEFT
     elif action == Action.STAY:
         return Action.STAY
+
+
+class AgentState:
+
+    def __init__(
+        self,
+        agent_position,
+        agent_alive: bool,
+        other_agent_positions,
+        other_agents_alive,
+        completed_jobs,
+        job_positions,
+    ):
+        # agent state
+        self.agent_position = agent_position
+        self.agent_alive = agent_alive
+
+        # other agent state
+        self.other_agent_positions = other_agent_positions
+        self.other_agents_alive = other_agents_alive
+
+        # other game state values
+        self.completed_jobs = completed_jobs
+        self.job_positions = job_positions
+
+
+class AgentStateWithTagging(AgentState):
+
+    def __init__(
+        self,
+        agent_position,
+        agent_alive: bool,
+        agent_used_tag_action: bool,
+        other_agent_positions,
+        other_agents_alive,
+        completed_jobs,
+        job_positions,
+        tag_timer,
+    ):
+        super().__init__(
+            agent_position,
+            agent_alive,
+            other_agent_positions,
+            other_agents_alive,
+            completed_jobs,
+            job_positions,
+        )
+
+        # agent state
+        self.agent_used_tag_action = agent_used_tag_action
+
+        # other agent state
+        self.tag_timer = tag_timer
 
 
 class FourRoomEnv(Env):
@@ -163,7 +218,7 @@ class FourRoomEnv(Env):
 
         self.reset()
 
-    def get_agent_states(self):
+    def get_agent_states(self) -> List[AgentState]:
         """
         Returns a list of states visible to each agent.
         Helps with the distinction between self and others.
@@ -179,13 +234,13 @@ class FourRoomEnv(Env):
             other_agent_alive = self.alive_agents[:i] + self.alive_agents[i + 1 :]
 
             agent_states.append(
-                (
-                    agent_pos,  # position of current agent
-                    agent_alive,  # whether current agent is alive
-                    other_agents_pos,  # positions of other agents
-                    other_agent_alive,  # whether other agents are alive
-                    self.completed_jobs,  # completed jobs list
-                    self.job_positions,  # job positions
+                AgentState(
+                    agent_position=agent_pos,
+                    agent_alive=agent_alive,
+                    other_agent_positions=other_agents_pos,
+                    other_agent_alive=other_agent_alive,
+                    completed_jobs=self.completed_jobs,
+                    job_positions=self.job_positions,
                 )
             )
 
@@ -503,7 +558,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         self.tag_reset_timer = 0
         return state
 
-    def get_agent_states(self):
+    def get_agent_states(self) -> List[AgentState]:
         """
         Returns a list of states visible to each agent.
         Helps with the distinction between self and others.
@@ -520,16 +575,15 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             other_agent_alive = self.alive_agents[:i] + self.alive_agents[i + 1 :]
 
             agent_states.append(
-                (
-                    agent_pos,  # position of current agent
-                    agent_alive,  # whether current agent is alive
-                    agent_used_tag_action,  # whether agent used tag
-                    other_agents_pos,  # positions of other agents
-                    other_agent_alive,  # whether other agents are alive
-                    self.completed_jobs,  # completed jobs list
-                    self.job_positions,  # job positions
-                    self.tag_reset_interval
-                    - self.tag_reset_timer,  # time left to tag reset
+                AgentStateWithTagging(
+                    agent_position=agent_pos,
+                    agent_alive=agent_alive,
+                    agent_used_tag_action=agent_used_tag_action,
+                    other_agent_positions=other_agents_pos,
+                    other_agent_alive=other_agent_alive,
+                    completed_jobs=self.completed_jobs,
+                    job_positions=self.job_positions,
+                    tag_timer=self.tag_reset_interval - self.tag_reset_timer,
                 )
             )
 
