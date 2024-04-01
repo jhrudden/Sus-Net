@@ -172,6 +172,10 @@ class FourRoomEnv(Env):
         self.alive_agents = None
         self.completed_jobs = None
 
+        # used to shuffle the order in which get_agent_state builds states
+        # if imposters are always first, eventually alg will learn to vote out first players
+        self.agent_list_order = None
+
         # NOTE: This is the 2D grid of 4 rooms that we saw in the previous examples however, no goal and start states are defined
         # Coordinate system is (x, y) where x is the horizontal and y is the vertical direction
         self.walls = [
@@ -222,26 +226,32 @@ class FourRoomEnv(Env):
         """
         Returns a list of states visible to each agent.
         Helps with the distinction between self and others.
+
+        Agent states are returned in the order in which they are defined.
+        But the order of other agent positions is randomized at the begining
+        of the env reset and remain consistent!
         """
 
-        agent_states = []
+        agent_positions = [self.agent_positions[idx] for idx in self.agent_list_order]
+        alive_agents = [self.alive_agents[idx] for idx in self.agent_list_order]
 
-        for i in range(self.n_agents):
-            agent_pos = self.agent_positions[i]
-            agent_alive = self.alive_agents[i]
+        agent_states = [None] * self.n_agents
 
-            other_agents_pos = self.agent_positions[:i] + self.agent_positions[i + 1 :]
-            other_agent_alive = self.alive_agents[:i] + self.alive_agents[i + 1 :]
+        for idx, agent in enumerate(self.agent_list_order):
 
-            agent_states.append(
-                AgentState(
-                    agent_position=agent_pos,
-                    agent_alive=agent_alive,
-                    other_agent_positions=other_agents_pos,
-                    other_agent_alive=other_agent_alive,
-                    completed_jobs=self.completed_jobs,
-                    job_positions=self.job_positions,
-                )
+            agent_pos = agent_positions[idx]
+            agent_alive = alive_agents[idx]
+
+            other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
+            other_agent_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
+
+            agent_states[agent] = AgentState(
+                agent_position=agent_pos,
+                agent_alive=agent_alive,
+                other_agent_positions=other_agents_pos,
+                other_agent_alive=other_agent_alive,
+                completed_jobs=self.completed_jobs,
+                job_positions=self.job_positions,
             )
 
         return agent_states
@@ -289,6 +299,10 @@ class FourRoomEnv(Env):
 
         self.alive_agents = np.ones(self.n_agents)
         self.completed_jobs = np.zeros(self.n_jobs)
+
+        # used to shuffle the order in which get_agent_state builds states
+        # if imposters are always first, eventually alg will learn to vote out first players
+        self.agent_list_order = list(range(self.n_agents))
 
         return (
             (
@@ -562,29 +576,36 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         """
         Returns a list of states visible to each agent.
         Helps with the distinction between self and others.
+
+        Agent states are returned in the order in which they are defined.
+        But the order of other agent positions is randomized at the begining
+        of the env reset and remain consistent!
         """
 
-        agent_states = []
+        agent_positions = [self.agent_positions[idx] for idx in self.agent_list_order]
+        alive_agents = [self.alive_agents[idx] for idx in self.agent_list_order]
+        used_tag_actions = [self.used_tag_actions[idx] for idx in self.agent_list_order]
 
-        for i in range(self.n_agents):
-            agent_pos = self.agent_positions[i]
-            agent_alive = self.alive_agents[i]
-            agent_used_tag_action = self.used_tag_actions[i]
+        agent_states = [None] * self.n_agents
 
-            other_agents_pos = self.agent_positions[:i] + self.agent_positions[i + 1 :]
-            other_agent_alive = self.alive_agents[:i] + self.alive_agents[i + 1 :]
+        for idx, agent in enumerate(self.agent_list_order):
 
-            agent_states.append(
-                AgentStateWithTagging(
-                    agent_position=agent_pos,
-                    agent_alive=agent_alive,
-                    agent_used_tag_action=agent_used_tag_action,
-                    other_agent_positions=other_agents_pos,
-                    other_agent_alive=other_agent_alive,
-                    completed_jobs=self.completed_jobs,
-                    job_positions=self.job_positions,
-                    tag_timer=self.tag_reset_interval - self.tag_reset_timer,
-                )
+            agent_pos = agent_positions[idx]
+            agent_alive = alive_agents[idx]
+            agent_used_tag_action = used_tag_actions[idx]
+
+            other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
+            other_agent_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
+
+            agent_states[agent] = AgentStateWithTagging(
+                agent_position=agent_pos,
+                agent_alive=agent_alive,
+                agent_used_tag_action=agent_used_tag_action,
+                other_agent_positions=other_agents_pos,
+                other_agent_alive=other_agent_alive,
+                completed_jobs=self.completed_jobs,
+                job_positions=self.job_positions,
+                tag_timer=self.tag_reset_interval - self.tag_reset_timer,
             )
 
         return agent_states
