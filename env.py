@@ -115,8 +115,10 @@ class AgentStateWithTagging(AgentState):
         agent_position,
         agent_alive: bool,
         agent_used_tag_action: bool,
+        agent_tag_count: int,
         other_agent_positions,
         other_agents_alive,
+        other_agents_tag_counts,
         completed_jobs,
         job_positions,
         tag_timer,
@@ -132,9 +134,11 @@ class AgentStateWithTagging(AgentState):
 
         # agent state
         self.agent_used_tag_action = agent_used_tag_action
+        self.agent_tag_count = agent_tag_count
 
         # other agent state
         self.tag_timer = tag_timer
+        self.other_agents_tag_counts = other_agents_tag_counts
 
 
 class FourRoomEnv(Env):
@@ -192,10 +196,10 @@ class FourRoomEnv(Env):
             (5, 7),
             (5, 9),
             (5, 10),
-            (6, 4),
-            (7, 4),
-            (9, 4),
-            (10, 4),
+            (6, 5),
+            (7, 5),
+            (9, 5),
+            (10, 5),
         ]
 
         self.n_rows = 11
@@ -585,6 +589,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         agent_positions = [self.agent_positions[idx] for idx in self.agent_list_order]
         alive_agents = [self.alive_agents[idx] for idx in self.agent_list_order]
         used_tag_actions = [self.used_tag_actions[idx] for idx in self.agent_list_order]
+        tag_counts = [self.tag_counts[idx] for idx in self.agent_list_order]
 
         agent_states = [None] * self.n_agents
 
@@ -593,16 +598,20 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             agent_pos = agent_positions[idx]
             agent_alive = alive_agents[idx]
             agent_used_tag_action = used_tag_actions[idx]
+            agent_tag_count = tag_counts[idx]
 
             other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
             other_agent_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
+            other_agent_tag_count = tag_counts[:idx] + tag_counts[idx + 1 :]
 
             agent_states[agent] = AgentStateWithTagging(
                 agent_position=agent_pos,
                 agent_alive=agent_alive,
                 agent_used_tag_action=agent_used_tag_action,
+                agent_tag_count=agent_tag_count,
                 other_agent_positions=other_agents_pos,
                 other_agent_alive=other_agent_alive,
+                other_agents_tag_counts=other_agent_tag_count,
                 completed_jobs=self.completed_jobs,
                 job_positions=self.job_positions,
                 tag_timer=self.tag_reset_interval - self.tag_reset_timer,
