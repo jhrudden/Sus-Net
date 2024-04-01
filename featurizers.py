@@ -4,6 +4,21 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
+Q1_mask = np.zeros((11, 11))
+Q1_mask[:6, :6] = 1.0
+
+Q2_mask = np.zeros((11, 11))
+Q2_mask[:6, 6:] = 1.0
+
+Q3_mask = np.zeros((11, 11))
+Q3_mask[6:, 6:] = 1.0
+
+Q4_mask = np.zeros((11, 11))
+Q4_mask[6:, :6] = 1.0
+
+ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
+
+
 class SpacialFeaturizer(ABC):
     """Returns a 3D Numpy array for the specific feacture."""
 
@@ -17,9 +32,9 @@ class SpacialFeaturizer(ABC):
 
     @abstractmethod
     def extract_features(agent_state: AgentState) -> np.array:
-        raise NotImplementedError("Need to implement extract featurs method.")
+        raise NotImplementedError("Need to implement extract features method.")
 
-    def get_blank_featurs(self, num_channels):
+    def get_blank_features(self, num_channels):
         return np.zeros((num_channels, self.game_width, self.game_height))
 
 
@@ -29,10 +44,10 @@ class SelfPositionFeaturizer(SpacialFeaturizer):
     """
 
     def extract_features(self, agent_state: AgentState):
-        featurs = self.get_blank_featurs(num_channels=1)
+        features = self.get_blank_features(num_channels=1)
         x, y = agent_state.agent_position
-        featurs[x, y] = 1
-        return featurs
+        features[x, y] = 1
+        return features
 
 
 class AgentsAtPositionFeaturizer(SpacialFeaturizer):
@@ -41,13 +56,13 @@ class AgentsAtPositionFeaturizer(SpacialFeaturizer):
     """
 
     def extract_features(self, agent_state: AgentState):
-        featurs = self.get_blank_featurs(num_channels=1)
+        features = self.get_blank_features(num_channels=1)
         for alive, (x, y) in zip(
             agent_state.other_agents_alive, agent_state.other_agent_positions
         ):
-            featurs[x, y] += alive
+            features[x, y] += alive
 
-        return featurs
+        return features
 
 
 class AgentPositionsFeaturizer(SelfPositionFeaturizer):
@@ -60,18 +75,18 @@ class AgentPositionsFeaturizer(SelfPositionFeaturizer):
     def extract_features(self, agent_state: AgentState):
         n_agents = 1 + len(agent_state.other_agent_positions)
 
-        featurs = self.get_blank_featurs(num_channels=n_agents)
+        features = self.get_blank_features(num_channels=n_agents)
 
         # position of the current agent
-        featurs[0] = super().extract_features()
+        features[0] = super().extract_features()
 
         # positions of other agents
         for idx, (alive, (x, y)) in enumerate(
             zip(agent_state.other_agents_alive, agent_state.other_agent_positions)
         ):
-            featurs[idx, x, y] += alive
+            features[idx, x, y] += alive
 
-        return featurs
+        return features
 
 
 class JobFeaturizer(SpacialFeaturizer):
@@ -83,15 +98,15 @@ class JobFeaturizer(SpacialFeaturizer):
 
     def extract_features(self, agent_state: AgentState):
 
-        featurs = self.get_blank_featurs(num_channels=2)
+        features = self.get_blank_features(num_channels=2)
 
         for job_position, job_done in zip(
             agent_state.job_positions, agent_state.completed_jobs
         ):
             x, y = job_position
-            featurs[int(job_done), x, y] = 1
+            features[int(job_done), x, y] = 1
 
-        return featurs
+        return features
 
 
 class CombineSpacialFeaturizer(SpacialFeaturizer):
@@ -112,13 +127,29 @@ class PartiallyObservableFeaturizer(CombineSpacialFeaturizer):
     Zeros everything that is not visible to the agent.
     """
 
+    def __init__(self, featurizers: List[SpacialFeaturizer], add_obs_mask_feature=True):
+        super().__init__(featurizers=featurizers)
+        self.add_obs_mask_feature = add_obs_mask_feature
+
     def extract_features(self, agent_state: AgentState):
         features = super().extract_features(agent_state=agent_state)
 
-        # determine room in which the player is in
+        # agent position
+        x, y = agent_state.agent_position
+
+        # determine observability mask
+        obs_mask = self.get_blank_features(num_channels=1)
+        for room_mask in ROOM_MASKS:
+            if room_mask[x, y] > 0:
+                obs_mask += room_mask
+
+        obs_mask = np.minimum(obs_mask, 1)  # 1 if cell is observable, 0 if not
 
         # zero out all that is not in the room
+        features = features * obs_mask
 
-        # add channel to indicate what we can/cannot observe?
+        # add channel to indicate what we can/cannot observe? the observation mask?
+        if self.add_obs_mask_feature:
+            return np.concatenate([features, obs_mask], axis=0)
 
         return features
