@@ -1,11 +1,12 @@
+from typing import List
 from env import AgentState, AgentStateWithTagging
 from abc import ABC, abstractmethod
 import numpy as np
 
 
 class SpacialFeaturizer(ABC):
+    """Returns a 3D Numpy array for the specific feacture."""
 
-    @abstractmethod
     def __init__(
         self,
         game_width,
@@ -15,74 +16,92 @@ class SpacialFeaturizer(ABC):
         self.game_height = game_height
 
     @abstractmethod
-    def extract_feature(agent_state: AgentState) -> np.array:
-        raise NotImplementedError("Need to implement extract feature method.")
+    def extract_featurs(agent_state: AgentState) -> np.array:
+        raise NotImplementedError("Need to implement extract featurs method.")
 
-    def get_blank_feature(self):
-        return np.zeros((self.game_width, self.game_height))
+    def get_blank_featurs(self, num_channels):
+        return np.zeros((num_channels, self.game_width, self.game_height))
 
 
 class SelfPositionFeaturizer(SpacialFeaturizer):
-    """2D channel with 1 in positon of agent and 0 everywhere else"""
+    """
+    1 channel: 1 in positon of agent and 0 everywhere else
+    """
 
-    def extract_feature(self, agent_state: AgentState):
-        feature = self.get_blank_feature()
+    def extract_featurs(self, agent_state: AgentState):
+        featurs = self.get_blank_featurs(num_channels=1)
         x, y = agent_state.agent_position
-        feature[x, y] = 1
-        return feature
+        featurs[x, y] = 1
+        return featurs
 
 
-class OthersPositionFeaturizer(SpacialFeaturizer):
-    """Number of agents located in a particular position."""
+class AgentsAtPositionFeaturizer(SpacialFeaturizer):
+    """
+    1 channel: Number of agents located in a particular position.
+    """
 
-    def extract_feature(self, agent_state: AgentState):
-        feature = self.get_blank_feature()
+    def extract_featurs(self, agent_state: AgentState):
+        featurs = self.get_blank_featurs(num_channels=1)
         for alive, (x, y) in zip(
             agent_state.other_agents_alive, agent_state.other_agent_positions
         ):
-            feature[x, y] += alive
+            featurs[x, y] += alive
 
-        return feature
+        return featurs
 
 
-class AllPositionFeaturizer(SelfPositionFeaturizer):
+class AgentPositionsFeaturizer(SelfPositionFeaturizer):
     """
+    n_agent_channels:
     Makes a channel per agent. Each channel has 1 in the location of the agent, 0 everywhere else.
     Exepcted to help with learning which agent is which over time.
     """
 
-    def extract_feature(self, agent_state: AgentState):
+    def extract_featurs(self, agent_state: AgentState):
         n_agents = 1 + len(agent_state.other_agent_positions)
 
-        feature = np.zeros((n_agents, self.game_width, self.game_height))
+        featurs = self.get_blank_featurs(num_channels=n_agents)
 
         # position of the current agent
-        feature[0] = super().extract_feature()
+        featurs[0] = super().extract_featurs()
 
         # positions of other agents
         for idx, (alive, (x, y)) in enumerate(
             zip(agent_state.other_agents_alive, agent_state.other_agent_positions)
         ):
-            feature[idx, x, y] += alive
+            featurs[idx, x, y] += alive
 
-        return feature
+        return featurs
 
 
 class JobFeaturizer(SpacialFeaturizer):
     """
-    Makes 2 channels:
+    2 channels:
         - positions of incomplete jobs.
         - positions of done jobs
     """
 
-    def extract_feature(self, agent_state: AgentState):
+    def extract_featurs(self, agent_state: AgentState):
 
-        feature = np.zeros((2, self.game_width, self.game_height))
+        featurs = self.get_blank_featurs(num_channels=2)
 
         for job_position, job_done in zip(
             agent_state.job_positions, agent_state.completed_jobs
         ):
             x, y = job_position
-            feature[int(job_done), x, y] = 1
+            featurs[int(job_done), x, y] = 1
 
-        return feature
+        return featurs
+
+
+class CombineSpacialFeaturizer(SpacialFeaturizer):
+    """
+    Combines multiple spacial featurizers into a single 3D array.
+    """
+
+    def __init__(self, featurizers: List[SpacialFeaturizer]):
+        self.featurizers = featurizers
+
+    def extract_featurs(self, agent_state: AgentState):
+        features = [f.extract_featurs(agent_state) for f in self.featurizers]
+        return np.concatenate(features, axis=0)
