@@ -307,10 +307,14 @@ class FourRoomEnv(Env):
         # if imposters are always first, eventually alg will learn to vote out first players
         self.agent_state_order_list = list(range(self.n_agents))
         np.random.shuffle(self.agent_state_order_list)
-        self.agent_state_order_dict = {
-            agent_state_idx: agent_idx
-            for agent_idx, agent_state_idx in enumerate(self.agent_state_order_list)
-        }
+
+        # tag order map for each agent
+        self.agent_tag_action_map = {}
+        for state_idx, agent_idx in enumerate(self.agent_state_order_list):
+            self.agent_tag_action_map[agent_idx] = (
+                self.agent_state_order_list[state_idx + 1 :]
+                + self.agent_state_order_list[:state_idx]
+            )
 
         return (
             (
@@ -610,9 +614,9 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             agent_used_tag_action = used_tag_actions[idx]
             agent_tag_count = tag_counts[idx]
 
-            other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
-            other_agents_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
-            other_agent_tag_count = tag_counts[:idx] + tag_counts[idx + 1 :]
+            other_agents_pos = agent_positions[idx + 1 :] + agent_positions[:idx]
+            other_agents_alive = alive_agents[idx + 1 :] + alive_agents[:idx]
+            other_agent_tag_count = tag_counts[idx + 1 :] + tag_counts[:idx]
 
             agent_states[agent] = AgentStateWithTagging(
                 agent_position=agent_pos,
@@ -633,9 +637,8 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         if self.used_tag_actions[agent_idx] == 0:
             tagged_agent_state_idx = agent_action - len(Action)
 
-            tagged_agent_idx = self.agent_state_order_list[
-                (self.agent_state_order_dict[agent_idx] + tagged_agent_state_idx)
-                % self.n_agents
+            tagged_agent_idx = self.agent_tag_action_map[agent_idx][
+                tagged_agent_state_idx
             ]
             print(f"Agent {agent_idx} is tagging agent {tagged_agent_idx}")
             self.tag_counts[tagged_agent_idx] += 1
