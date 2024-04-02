@@ -4,17 +4,14 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
-Q1_mask = np.zeros((11, 11))
-Q1_mask[:6, :6] = 1.0
-
-Q2_mask = np.zeros((11, 11))
-Q2_mask[:6, 6:] = 1.0
-
-Q3_mask = np.zeros((11, 11))
-Q3_mask[6:, 6:] = 1.0
-
-Q4_mask = np.zeros((11, 11))
-Q4_mask[6:, :6] = 1.0
+Q1_mask = np.zeros((9, 9))
+Q1_mask[:5, :5] = 1.0
+Q2_mask = np.zeros((9, 9))
+Q2_mask[:5, 5:] = 1.0
+Q3_mask = np.zeros((9, 9))
+Q3_mask[5:, 5:] = 1.0
+Q4_mask = np.zeros((9, 9))
+Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 

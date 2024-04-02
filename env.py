@@ -178,7 +178,8 @@ class FourRoomEnv(Env):
 
         # used to shuffle the order in which get_agent_state builds states
         # if imposters are always first, eventually alg will learn to vote out first players
-        self.agent_list_order = None
+        self.agent_state_order_list = None
+        self.agent_state_order_dict = None
 
         # NOTE: This is the 2D grid of 4 rooms that we saw in the previous examples however, no goal and start states are defined
         # Coordinate system is (x, y) where x is the horizontal and y is the vertical direction
@@ -232,12 +233,14 @@ class FourRoomEnv(Env):
         of the env reset and remain consistent!
         """
 
-        agent_positions = [self.agent_positions[idx] for idx in self.agent_list_order]
-        alive_agents = [self.alive_agents[idx] for idx in self.agent_list_order]
+        agent_positions = [
+            self.agent_positions[idx] for idx in self.agent_state_order_list
+        ]
+        alive_agents = [self.alive_agents[idx] for idx in self.agent_state_order_list]
 
         agent_states = [None] * self.n_agents
 
-        for idx, agent in enumerate(self.agent_list_order):
+        for idx, agent in enumerate(self.agent_state_order_list):
 
             agent_pos = agent_positions[idx]
             agent_alive = alive_agents[idx]
@@ -302,8 +305,12 @@ class FourRoomEnv(Env):
 
         # used to shuffle the order in which get_agent_state builds states
         # if imposters are always first, eventually alg will learn to vote out first players
-        self.agent_list_order = list(range(self.n_agents))
-        np.random.shuffle(self.agent_list_order)
+        self.agent_state_order_list = list(range(self.n_agents))
+        np.random.shuffle(self.agent_state_order_list)
+        self.agent_state_order_dict = {
+            agent_state_idx: agent_idx
+            for agent_idx, agent_state_idx in enumerate(self.agent_state_order_list)
+        }
 
         return (
             (
@@ -585,14 +592,18 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         of the env reset and remain consistent!
         """
 
-        agent_positions = [self.agent_positions[idx] for idx in self.agent_list_order]
-        alive_agents = [self.alive_agents[idx] for idx in self.agent_list_order]
-        used_tag_actions = [self.used_tag_actions[idx] for idx in self.agent_list_order]
-        tag_counts = [self.tag_counts[idx] for idx in self.agent_list_order]
+        agent_positions = [
+            self.agent_positions[idx] for idx in self.agent_state_order_list
+        ]
+        alive_agents = [self.alive_agents[idx] for idx in self.agent_state_order_list]
+        used_tag_actions = [
+            self.used_tag_actions[idx] for idx in self.agent_state_order_list
+        ]
+        tag_counts = [self.tag_counts[idx] for idx in self.agent_state_order_list]
 
         agent_states = [None] * self.n_agents
 
-        for idx, agent in enumerate(self.agent_list_order):
+        for idx, agent in enumerate(self.agent_state_order_list):
 
             agent_pos = agent_positions[idx]
             agent_alive = alive_agents[idx]
@@ -617,6 +628,18 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             )
 
         return agent_states
+
+    def _agent_tag(self, agent_idx, agent_action):
+        if self.used_tag_actions[agent_idx] == 0:
+            tagged_agent_state_idx = agent_action - len(Action)
+
+            tagged_agent_idx = self.agent_state_order_list[
+                (self.agent_state_order_dict[agent_idx] + tagged_agent_state_idx)
+                % self.n_agents
+            ]
+            print(f"Agent {agent_idx} is tagging agent {tagged_agent_idx}")
+            self.tag_counts[tagged_agent_idx] += 1
+            self.used_tag_actions[agent_idx] = 1
 
     def step(self, agent_actions):
         """
@@ -668,11 +691,9 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         # perform action for each agent
         for agent_idx in agent_action_order:
             if agent_actions[agent_idx] > len(Action) - 1:
-                if self.used_tag_actions[agent_idx] == 0:
-                    tagged_agent_idx = agent_actions[agent_idx] - len(Action)
-                    print(f"Agent {agent_idx} is tagging agent {tagged_agent_idx}")
-                    self.tag_counts[tagged_agent_idx] += 1
-                    self.used_tag_actions[agent_idx] = 1
+                self._agent_tag(
+                    agent_idx=agent_idx, agent_action=agent_actions[agent_idx]
+                )
             else:
                 print(
                     f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}"
