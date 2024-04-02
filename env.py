@@ -84,6 +84,26 @@ def reverse_action(action):
         return Action.STAY
 
 
+CREW_ACTIONS = [
+    Action.UP,
+    Action.DOWN,
+    Action.RIGHT,
+    Action.LEFT,
+    Action.STAY,
+    Action.FIX,
+]
+
+IMPOSTER_ACTIONS = [
+    Action.UP,
+    Action.DOWN,
+    Action.RIGHT,
+    Action.LEFT,
+    Action.STAY,
+    Action.SABOTAGE,
+    Action.KILL,
+]
+
+
 class AgentState:
 
     def __init__(
@@ -308,13 +328,14 @@ class FourRoomEnv(Env):
         self.agent_state_order_list = list(range(self.n_agents))
         np.random.shuffle(self.agent_state_order_list)
 
-        # tag order map for each agent
-        self.agent_tag_action_map = {}
-        for state_idx, agent_idx in enumerate(self.agent_state_order_list):
-            self.agent_tag_action_map[agent_idx] = (
-                self.agent_state_order_list[state_idx + 1 :]
-                + self.agent_state_order_list[:state_idx]
-            )
+        # Agent Action Map: keeps tracks of actions available to each agent
+        # when agent_step is called, this list is indexed to get the action
+        self.agent_action_map = {}
+        for agent_idx in range(self.n_agents):
+            if agent_idx < self.n_imposters:
+                self.agent_action_map[agent_idx] = IMPOSTER_ACTIONS.copy()
+            else:
+                self.agent_action_map[agent_idx] = CREW_ACTIONS.copy()
 
         return (
             (
@@ -584,6 +605,18 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         self.tag_counts = np.zeros(self.n_agents)
         self.used_tag_actions = np.zeros(self.n_agents)
         self.tag_reset_timer = 0
+
+        # updating agent_action_map to include tagging actions
+        for state_idx, agent_idx in enumerate(self.agent_state_order_list):
+
+            # represented as an index of agent been tagged
+            tag_actions = (
+                self.agent_state_order_list[state_idx + 1 :]
+                + self.agent_state_order_list[:state_idx]
+            )
+
+            self.agent_action_map[agent_idx] += tag_actions
+
         return state
 
     def get_agent_states(self) -> List[AgentState]:
@@ -633,15 +666,14 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
         return agent_states
 
-    def _agent_tag(self, agent_idx, agent_action):
-        if self.used_tag_actions[agent_idx] == 0:
-            tagged_agent_state_idx = agent_action - len(Action)
-
-            tagged_agent_idx = self.agent_tag_action_map[agent_idx][
-                tagged_agent_state_idx
-            ]
-            print(f"Agent {agent_idx} is tagging agent {tagged_agent_idx}")
-            self.tag_counts[tagged_agent_idx] += 1
+    def _agent_tag(self, agent_idx, agent_tagged):
+        """Can only tag someone if your tag is unused and if the tagged agent is alive."""
+        if (
+            self.used_tag_actions[agent_idx] == 0
+            and self.alive_agents[agent_tagged] > 0
+        ):
+            print(f"Agent {agent_idx} is tagging agent {agent_tagged}")
+            self.tag_counts[agent_tagged] += 1
             self.used_tag_actions[agent_idx] = 1
 
     def step(self, agent_actions):
@@ -693,17 +725,18 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
         # perform action for each agent
         for agent_idx in agent_action_order:
-            if agent_actions[agent_idx] > len(Action) - 1:
-                self._agent_tag(
-                    agent_idx=agent_idx, agent_action=agent_actions[agent_idx]
-                )
+
+            agent_action = self.agent_action_map[agent_idx][agent_actions[agent_idx]]
+
+            if isinstance(agent_action, int):  # this is a tag action
+                print(f"Agent {agent_idx} trying to tag  {agent_action}")
+                self._agent_tag(agent_idx=agent_idx, agent_tagged=agent_action)
+
             else:
                 print(
                     f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}"
                 )
-                self._agent_step(
-                    agent_idx=agent_idx, agent_action=Action(agent_actions[agent_idx])
-                )
+                self._agent_step(agent_idx=agent_idx, agent_action=agent_action)
 
         # Check if any agent has been tagged too many times
         for agent_idx, tag_count in enumerate(self.tag_counts):
