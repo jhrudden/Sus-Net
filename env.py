@@ -115,8 +115,10 @@ class AgentStateWithTagging(AgentState):
         agent_position,
         agent_alive: bool,
         agent_used_tag_action: bool,
+        agent_tag_count: int,
         other_agent_positions,
         other_agents_alive,
+        other_agents_tag_counts,
         completed_jobs,
         job_positions,
         tag_timer,
@@ -132,9 +134,11 @@ class AgentStateWithTagging(AgentState):
 
         # agent state
         self.agent_used_tag_action = agent_used_tag_action
+        self.agent_tag_count = agent_tag_count
 
         # other agent state
         self.tag_timer = tag_timer
+        self.other_agents_tag_counts = other_agents_tag_counts
 
 
 class FourRoomEnv(Env):
@@ -174,35 +178,32 @@ class FourRoomEnv(Env):
 
         # used to shuffle the order in which get_agent_state builds states
         # if imposters are always first, eventually alg will learn to vote out first players
-        self.agent_list_order = None
+        self.agent_state_order_list = None
+        self.agent_state_order_dict = None
 
         # NOTE: This is the 2D grid of 4 rooms that we saw in the previous examples however, no goal and start states are defined
         # Coordinate system is (x, y) where x is the horizontal and y is the vertical direction
         self.walls = [
-            (0, 5),
-            (2, 5),
-            (3, 5),
-            (4, 5),
-            (5, 0),
-            (5, 2),
-            (5, 3),
+            (0, 4),
+            (2, 4),
+            (3, 4),
+            (4, 4),
             (5, 4),
-            (5, 5),
-            (5, 6),
-            (5, 7),
-            (5, 9),
-            (5, 10),
             (6, 4),
-            (7, 4),
-            (9, 4),
-            (10, 4),
+            (8, 4),
+            (4, 0),
+            (4, 2),
+            (4, 3),
+            (4, 5),
+            (4, 6),
+            (4, 8),
         ]
 
-        self.n_rows = 11
-        self.n_cols = 11
+        self.n_rows = 9
+        self.n_cols = 9
 
         self.valid_positions = [
-            (x, y) for x in range(11) for y in range(11) if (x, y) not in self.walls
+            (x, y) for x in range(9) for y in range(9) if (x, y) not in self.walls
         ]
 
         self.action_space = spaces.Discrete(len(Action))
@@ -232,24 +233,26 @@ class FourRoomEnv(Env):
         of the env reset and remain consistent!
         """
 
-        agent_positions = [self.agent_positions[idx] for idx in self.agent_list_order]
-        alive_agents = [self.alive_agents[idx] for idx in self.agent_list_order]
+        agent_positions = [
+            self.agent_positions[idx] for idx in self.agent_state_order_list
+        ]
+        alive_agents = [self.alive_agents[idx] for idx in self.agent_state_order_list]
 
         agent_states = [None] * self.n_agents
 
-        for idx, agent in enumerate(self.agent_list_order):
+        for idx, agent in enumerate(self.agent_state_order_list):
 
             agent_pos = agent_positions[idx]
             agent_alive = alive_agents[idx]
 
             other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
-            other_agent_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
+            other_agents_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
 
             agent_states[agent] = AgentState(
                 agent_position=agent_pos,
                 agent_alive=agent_alive,
                 other_agent_positions=other_agents_pos,
-                other_agent_alive=other_agent_alive,
+                other_agents_alive=other_agents_alive,
                 completed_jobs=self.completed_jobs,
                 job_positions=self.job_positions,
             )
@@ -302,7 +305,16 @@ class FourRoomEnv(Env):
 
         # used to shuffle the order in which get_agent_state builds states
         # if imposters are always first, eventually alg will learn to vote out first players
-        self.agent_list_order = list(range(self.n_agents))
+        self.agent_state_order_list = list(range(self.n_agents))
+        np.random.shuffle(self.agent_state_order_list)
+
+        # tag order map for each agent
+        self.agent_tag_action_map = {}
+        for state_idx, agent_idx in enumerate(self.agent_state_order_list):
+            self.agent_tag_action_map[agent_idx] = (
+                self.agent_state_order_list[state_idx + 1 :]
+                + self.agent_state_order_list[:state_idx]
+            )
 
         return (
             (
@@ -360,7 +372,9 @@ class FourRoomEnv(Env):
         # perform action for each agent
         for agent_idx in agent_action_order:
             print(f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}")
-            self._agent_step(agent_idx=agent_idx, agent_action=agent_actions[agent_idx])
+            self._agent_step(
+                agent_idx=agent_idx, agent_action=Action(agent_actions[agent_idx])
+            )
 
         team_win, team_reward = self.check_win_condition()
         done = done or team_win
@@ -582,33 +596,53 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         of the env reset and remain consistent!
         """
 
-        agent_positions = [self.agent_positions[idx] for idx in self.agent_list_order]
-        alive_agents = [self.alive_agents[idx] for idx in self.agent_list_order]
-        used_tag_actions = [self.used_tag_actions[idx] for idx in self.agent_list_order]
+        agent_positions = [
+            self.agent_positions[idx] for idx in self.agent_state_order_list
+        ]
+        alive_agents = [self.alive_agents[idx] for idx in self.agent_state_order_list]
+        used_tag_actions = [
+            self.used_tag_actions[idx] for idx in self.agent_state_order_list
+        ]
+        tag_counts = [self.tag_counts[idx] for idx in self.agent_state_order_list]
 
         agent_states = [None] * self.n_agents
 
-        for idx, agent in enumerate(self.agent_list_order):
+        for idx, agent in enumerate(self.agent_state_order_list):
 
             agent_pos = agent_positions[idx]
             agent_alive = alive_agents[idx]
             agent_used_tag_action = used_tag_actions[idx]
+            agent_tag_count = tag_counts[idx]
 
-            other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
-            other_agent_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
+            other_agents_pos = agent_positions[idx + 1 :] + agent_positions[:idx]
+            other_agents_alive = alive_agents[idx + 1 :] + alive_agents[:idx]
+            other_agent_tag_count = tag_counts[idx + 1 :] + tag_counts[:idx]
 
             agent_states[agent] = AgentStateWithTagging(
                 agent_position=agent_pos,
                 agent_alive=agent_alive,
                 agent_used_tag_action=agent_used_tag_action,
+                agent_tag_count=agent_tag_count,
                 other_agent_positions=other_agents_pos,
-                other_agent_alive=other_agent_alive,
+                other_agents_alive=other_agents_alive,
+                other_agents_tag_counts=other_agent_tag_count,
                 completed_jobs=self.completed_jobs,
                 job_positions=self.job_positions,
                 tag_timer=self.tag_reset_interval - self.tag_reset_timer,
             )
 
         return agent_states
+
+    def _agent_tag(self, agent_idx, agent_action):
+        if self.used_tag_actions[agent_idx] == 0:
+            tagged_agent_state_idx = agent_action - len(Action)
+
+            tagged_agent_idx = self.agent_tag_action_map[agent_idx][
+                tagged_agent_state_idx
+            ]
+            print(f"Agent {agent_idx} is tagging agent {tagged_agent_idx}")
+            self.tag_counts[tagged_agent_idx] += 1
+            self.used_tag_actions[agent_idx] = 1
 
     def step(self, agent_actions):
         """
@@ -659,20 +693,16 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
         # perform action for each agent
         for agent_idx in agent_action_order:
-            if (
-                agent_actions[agent_idx] > len(Action)
-                and self.used_tag_actions[agent_idx] == 0
-            ):
-                tagged_agent_idx = agent_actions[agent_idx] - len(Action)
-                print(f"Agent {agent_idx} is tagging agent {tagged_agent_idx}")
-                self.tag_counts[tagged_agent_idx] += 1
-                self.used_tag_actions[agent_idx] = 1
+            if agent_actions[agent_idx] > len(Action) - 1:
+                self._agent_tag(
+                    agent_idx=agent_idx, agent_action=agent_actions[agent_idx]
+                )
             else:
                 print(
                     f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}"
                 )
                 self._agent_step(
-                    agent_idx=agent_idx, agent_action=agent_actions[agent_idx]
+                    agent_idx=agent_idx, agent_action=Action(agent_actions[agent_idx])
                 )
 
         # Check if any agent has been tagged too many times
