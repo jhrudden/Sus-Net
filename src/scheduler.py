@@ -15,7 +15,6 @@ class ExponentialSchedule:
         self.value_to = value_to
         self.num_steps = num_steps
 
-        # YOUR CODE HERE: Determine the `a` and `b` parameters such that the schedule is correct
         self.a = value_from
         self.b = np.log(value_to / value_from) / (num_steps - 1)
 
@@ -31,9 +30,6 @@ class ExponentialSchedule:
         :param step: The step at which to compute the interpolation
         :rtype: Float. The interpolated value
         """
-
-        # YOUR CODE HERE: Implement the schedule rule as described in the docstring,
-        # using attributes `self.a` and `self.b`.
         if step < 1:
             return self.value_from
         if step >= self.num_steps:
