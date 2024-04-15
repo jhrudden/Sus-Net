@@ -1,5 +1,5 @@
 from typing import List
-from env import AgentState, AgentStateWithTagging
+from src.env import AgentState, AgentStateWithTagging
 from abc import ABC, abstractmethod
 import numpy as np
 
