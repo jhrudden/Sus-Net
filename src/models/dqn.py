@@ -97,14 +97,7 @@ class SpatialDQN(nn.Module):
         mlp_hidden_layer_dims: List[int],
         n_actions: int,
     ):
-        super(RNNModel, self).__init__()
-
-        # Making CNN
-        self.input_image_size = input_image_size
-        self.n_channels = n_channels
-        self.strides = strides
-        self.paddings = paddings
-        self.kernel_sizes = kernel_sizes
+        super(SpatialDQN, self).__init__()
 
         self.cnn = CNNModel(
             n_channels=n_channels,
@@ -126,10 +119,7 @@ class SpatialDQN(nn.Module):
 
         # Making RNN
         self.rnn_model = rnn_model
-        self.rnn_layers = rnn_layers
-        self.rnn_hidden_dim = rnn_hidden_dim
-        self.rnn_dropout = rnn_dropout
-
+        
         self.rnn = RNNModel(
             model_class=rnn_model,
             input_dim=self.cnn_ouput_dim + non_spatial_input_size,
@@ -157,7 +147,7 @@ class SpatialDQN(nn.Module):
         rnn_out, _ = self.rnn(rnn_in)
 
         # Use the last hidden state to predict with MLP
-        mlp_in = self.rnn(rnn_out[:, -1, :])
+        mlp_in = self.rnn(rnn_out[:, -1, :]) # NOTE: why running rnn again?
         out = self.prediction_head(mlp_in)
 
         return out
