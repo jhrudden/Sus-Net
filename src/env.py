@@ -241,8 +241,6 @@ class FourRoomEnv(Env):
             )
         )
 
-        self.reset()
-
     def get_agent_states(self) -> List[AgentState]:
         """
         Returns a list of states visible to each agent.
@@ -625,7 +623,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             self.tag_reset_interval - self.tag_reset_timer,
         }
 
-        return state
+        return state, {}
 
     def get_agent_states(self) -> List[AgentState]:
         """
