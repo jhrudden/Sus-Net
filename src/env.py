@@ -616,12 +616,12 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
             self.agent_action_map[agent_idx] += tag_actions
         
-        state = {
+        state = (
             *state,
             self.used_tag_actions,
             self.tag_counts,
             self.tag_reset_interval - self.tag_reset_timer,
-        }
+        )
 
         return state, {}
 
