@@ -671,7 +671,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             )
 
         return agent_states
-
+    
     def _agent_tag(self, agent_idx, agent_tagged):
         """Can only tag someone if your tag is unused and if the tagged agent is alive."""
         if (
