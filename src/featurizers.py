@@ -16,7 +16,7 @@ Q4_mask[5:, :5] = 1.0
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
 
-class SpacialFeaturizer(ABC):
+class SpatialFeaturizer(ABC):
     """Returns a 3D Numpy array for the specific feacture."""
 
     def __init__(
@@ -35,7 +35,7 @@ class SpacialFeaturizer(ABC):
         return np.zeros((num_channels, self.game_width, self.game_height))
 
 
-class SelfPositionFeaturizer(SpacialFeaturizer):
+class SelfPositionFeaturizer(SpatialFeaturizer):
     """
     1 channel: 1 in positon of agent and 0 everywhere else
     """
@@ -47,7 +47,7 @@ class SelfPositionFeaturizer(SpacialFeaturizer):
         return features
 
 
-class AgentsAtPositionFeaturizer(SpacialFeaturizer):
+class AgentsAtPositionFeaturizer(SpatialFeaturizer):
     """
     1 channel: Number of agents located in a particular position.
     """
@@ -86,7 +86,7 @@ class AgentPositionsFeaturizer(SelfPositionFeaturizer):
         return features
 
 
-class JobFeaturizer(SpacialFeaturizer):
+class JobFeaturizer(SpatialFeaturizer):
     """
     2 channels:
         - positions of incomplete jobs.
@@ -106,12 +106,12 @@ class JobFeaturizer(SpacialFeaturizer):
         return features
 
 
-class CombineSpacialFeaturizer(SpacialFeaturizer):
+class CombineSpatialFeaturizer(SpatialFeaturizer):
     """
-    Combines multiple spacial featurizers into a single 3D array.
+    Combines multiple Spatial featurizers into a single 3D array.
     """
 
-    def __init__(self, featurizers: List[SpacialFeaturizer]):
+    def __init__(self, featurizers: List[SpatialFeaturizer]):
         self.featurizers = featurizers
 
     def extract_features(self, agent_state: AgentState):
@@ -119,12 +119,12 @@ class CombineSpacialFeaturizer(SpacialFeaturizer):
         return np.concatenate(features, axis=0)
 
 
-class PartiallyObservableFeaturizer(CombineSpacialFeaturizer):
+class PartiallyObservableFeaturizer(CombineSpatialFeaturizer):
     """
     Zeros everything that is not visible to the agent.
     """
 
-    def __init__(self, featurizers: List[SpacialFeaturizer], add_obs_mask_feature=True):
+    def __init__(self, featurizers: List[SpatialFeaturizer], add_obs_mask_feature=True):
         super().__init__(featurizers=featurizers)
         self.add_obs_mask_feature = add_obs_mask_feature
 

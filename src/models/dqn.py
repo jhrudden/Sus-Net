@@ -70,7 +70,7 @@ class RNNModel(nn.Module):
         return self.model(x)  # (output, hidden state)
 
 
-class SpacialDQN(nn.Module):
+class SpatialDQN(nn.Module):
 
     def __init__(
         self,
