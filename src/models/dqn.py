@@ -1,14 +1,20 @@
 from typing import List
 import torch
 from torch import nn
+from enum import StrEnum
 
 from src.utils import calculate_cnn_output_dim
+class ActivationType(StrEnum):
+    RELU = 'relu'
+    SIGMOID = 'sigmoid'
 
-
-ACTIVATION_FN = {
-    "relu": nn.ReLU,
-    "sigmoid": nn.Sigmoid,
-}
+    def build(self):
+        if self == ActivationType.RELU:
+            return nn.ReLU()
+        elif self == ActivationType.SIGMOID:
+            return nn.Sigmoid()
+        else:
+            raise ValueError(f"Activation function {self} not supported")
 
 
 class CNNModel(nn.Module):
@@ -135,7 +141,7 @@ class SpatialDQN(nn.Module):
         # MLP Prediction head
         self.n_actions = n_actions
         self.mlp_dims = [rnn_hidden_dim] + mlp_hidden_layer_dims + [n_actions]
-        self.prediction_head = make_mlp(layer_dims=self.mlp_dims, activation_fn="relu")
+        self.prediction_head = make_mlp(layer_dims=self.mlp_dims,  activation_fn=ActivationType.RELU)
 
     def forward(self, spatial_x, non_spatial_x):
 
@@ -157,13 +163,11 @@ class SpatialDQN(nn.Module):
         return out
 
 
-def make_mlp(layer_dims, activation_fn):
-    a = ACTIVATION_FN[activation_fn]
-
+def make_mlp(layer_dims, activation_fn: ActivationType = ActivationType.RELU):
     layers = []
 
     for idx, dim in enumerate(layer_dims[:-1]):
         layers.append(nn.Linear(in_features=dim, out_features=layer_dims[idx + 1]))
-        layers.append(a())
+        layers.append(activation_fn.build())
 
     return nn.Sequential(*layers[:-1])
