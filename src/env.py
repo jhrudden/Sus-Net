@@ -595,6 +595,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
                 spaces.MultiBinary(self.n_jobs),  # Completed jobs
                 spaces.MultiBinary(self.n_agents),  # Alive agents
                 spaces.MultiBinary(self.n_agents),  # Who has used their tag
+                spaces.MultiDiscrete([self.n_agents] * self.n_agents),  # Tag counts
                 spaces.Discrete(self.tag_reset_interval),
                 # NOTE: Timer for resetting tag counts
             )
@@ -616,6 +617,13 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             )
 
             self.agent_action_map[agent_idx] += tag_actions
+        
+        state = {
+            *state,
+            self.used_tag_actions,
+            self.tag_counts,
+            self.tag_reset_interval - self.tag_reset_timer,
+        }
 
         return state
 
@@ -690,7 +698,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
         Returns:
         - tuple containing:
-            - A tuple of (agent_position, job_positions, completed_jobs, alive_agents, agent_tag_count, time_till_vote_reset) reflecting the new state of the environment.
+            - A tuple of (agent_position, job_positions, completed_jobs, alive_agents, used_tag_actions, agent_tag_count, time_till_vote_reset) reflecting the new state of the environment.
             - agent_rewards (numpy.ndarray): An array of rewards received by each agent during this step.
             - done (bool): A flag indicating whether the game has reached a terminal state.
             - truncated (bool): A flag indicating whether the episode was truncated (not applicable in this context, but included for API consistency).
@@ -774,6 +782,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
                 self.completed_jobs,
                 self.alive_agents,
                 self.used_tag_actions,  # Who has used their tag
+                self.tag_counts,  # Tag counts
                 self.tag_reset_interval
                 - self.tag_reset_timer,  # Time left for tag reset
             ),
