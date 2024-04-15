@@ -26,10 +26,6 @@ class CNNModel(nn.Module):
         kernel_sizes: List[int],
     ):
         super(CNNModel, self).__init__()
-        self.n_channels = n_channels
-        self.strides = strides
-        self.paddings = paddings
-        self.kernel_sizes = kernel_sizes
 
         layers = []
         for idx, (channels, stride, kernel_size, padding) in enumerate(
