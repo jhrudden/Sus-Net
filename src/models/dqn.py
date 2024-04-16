@@ -4,9 +4,11 @@ from torch import nn
 from enum import StrEnum
 
 from src.utils import calculate_cnn_output_dim
+
+
 class ActivationType(StrEnum):
-    RELU = 'relu'
-    SIGMOID = 'sigmoid'
+    RELU = "relu"
+    SIGMOID = "sigmoid"
 
     def build(self):
         if self == ActivationType.RELU:
@@ -59,14 +61,13 @@ class RNNModel(nn.Module):
     ):
         super(RNNModel, self).__init__()
         assert isinstance(model_class, (nn.RNN, nn.GRU))
-        nn.RNN(
+        self.model = model_class(
             input_size=input_dim,
             hidden_size=hidden_dim,
             num_layers=n_layers,
             dropout=dropout,
             batch_first=True,
         )
-        self.model = model_class()
 
     def forward(self, x):
         return self.model(x)  # (output, hidden state)
@@ -115,7 +116,7 @@ class SpatialDQN(nn.Module):
 
         # Making RNN
         self.rnn_model = rnn_model
-        
+
         self.rnn = RNNModel(
             model_class=rnn_model,
             input_dim=self.cnn_ouput_dim + non_spatial_input_size,
@@ -127,7 +128,9 @@ class SpatialDQN(nn.Module):
         # MLP Prediction head
         self.n_actions = n_actions
         self.mlp_dims = [rnn_hidden_dim] + mlp_hidden_layer_dims + [n_actions]
-        self.prediction_head = make_mlp(layer_dims=self.mlp_dims,  activation_fn=ActivationType.RELU)
+        self.prediction_head = make_mlp(
+            layer_dims=self.mlp_dims, activation_fn=ActivationType.RELU
+        )
 
     def forward(self, spatial_x, non_spatial_x):
 
@@ -143,7 +146,7 @@ class SpatialDQN(nn.Module):
         rnn_out, _ = self.rnn(rnn_in)
 
         # Use the last hidden state to predict with MLP
-        mlp_in = self.rnn(rnn_out[:, -1, :]) # NOTE: why running rnn again?
+        mlp_in = rnn_out[:, -1, :]  # NOTE: why running rnn again?
         out = self.prediction_head(mlp_in)
 
         return out
