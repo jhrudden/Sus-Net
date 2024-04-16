@@ -1,0 +1,21 @@
+name: Clean Jupyter Notebooks
+
+on:
+  push:
+    branches:
+      - main
+      - '**'  # Applies to all branches
+    paths:
+      - '**.ipynb'  # Triggers the workflow only when Jupyter notebooks are changed
+
+jobs:
+  check_notebooks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Clean Jupyter Notebooks
+        uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
+        with:
+          fail_if_unstripped: true  # This will cause the workflow to fail if a notebook isn't clean
