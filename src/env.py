@@ -1,9 +1,7 @@
 from enum import Enum
-from collections import defaultdict
 from typing import List, Optional
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from gymnasium import Env, spaces
 
 """
@@ -223,67 +221,41 @@ class FourRoomEnv(Env):
         self.n_cols = 9
 
         self.valid_positions = [
-            (x, y) for x in range(9) for y in range(9) if (x, y) not in self.walls
+            [x, y] for x in range(9) for y in range(9) if (x, y) not in self.walls
         ]
 
         self.action_space = spaces.Discrete(len(Action))
 
         self.observation_space = spaces.Tuple(
             (
-                spaces.MultiDiscrete(
-                    [self.n_rows, self.n_cols] * self.n_agents
+                spaces.Box(
+                    low=0, high=self.n_rows, shape=(self.n_agents, 2), dtype=int
                 ),  # Agent positions
-                spaces.MultiDiscrete(
-                    [self.n_rows, self.n_cols] * self.n_jobs
+                spaces.Box(
+                    low=0, high=self.n_rows, shape=(self.n_jobs, 2), dtype=int
                 ),  # Job positions
                 spaces.MultiBinary(self.n_jobs),  # Completed jobs
                 spaces.MultiBinary(self.n_agents),  # Alive agents
             )
         )
+    
+    @property
+    def flattened_state_size(self):
+        return spaces.flatten_space(self.observation_space).shape[0]
+    
+    def flatten_state(self, state):
+        return spaces.flatten(self.observation_space, state)
 
-    def get_agent_states(self) -> List[AgentState]:
-        """
-        Returns a list of states visible to each agent.
-        Helps with the distinction between self and others.
-
-        Agent states are returned in the order in which they are defined.
-        But the order of other agent positions is randomized at the begining
-        of the env reset and remain consistent!
-        """
-
-        agent_positions = [
-            self.agent_positions[idx] for idx in self.agent_state_order_list
-        ]
-        alive_agents = [self.alive_agents[idx] for idx in self.agent_state_order_list]
-
-        agent_states = [None] * self.n_agents
-
-        for idx, agent in enumerate(self.agent_state_order_list):
-
-            agent_pos = agent_positions[idx]
-            agent_alive = alive_agents[idx]
-
-            other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
-            other_agents_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
-
-            agent_states[agent] = AgentState(
-                agent_position=agent_pos,
-                agent_alive=agent_alive,
-                other_agent_positions=other_agents_pos,
-                other_agents_alive=other_agents_alive,
-                completed_jobs=self.completed_jobs,
-                job_positions=self.job_positions,
-            )
-
-        return agent_states
-
+    def unflatten_state(self, state):
+        return spaces.unflatten(self.observation_space, state)
+    
     def _validate_init_args(self, n_imposters, n_crew, n_jobs):
         assert n_imposters > 0, f"Must have at least one imposter. Got {n_imposters}."
         assert n_crew > 0, f"Must have at least one crew member. Got {n_crew}."
         assert n_jobs > 0, f"Must have at least one job. Got {n_jobs}."
         assert (
             n_imposters < n_crew
-        ), f"Must be more crew members than imposters. Got {n_imposters} imposters and {n_crew} crew members."
+        ), f"Must be more crew members than imposters. Got {n_imposters} imposters and {n_crew} crew members." 
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
@@ -309,14 +281,20 @@ class FourRoomEnv(Env):
         agent_cells = np.random.choice(
             len(self.valid_positions), size=self.n_agents, replace=True
         )
-        self.agent_positions = [self.valid_positions[cell] for cell in agent_cells]
+        self.agent_positions = np.zeros((self.n_agents, 2), dtype=int)
+        for i, cell in enumerate(agent_cells):
+            self.agent_positions[i] = self.valid_positions[cell]
 
         # random job positions
         # NOTE: any two jobs can't be at the same position
         job_cells = np.random.choice(
             len(self.valid_positions), size=self.n_jobs, replace=False
         )
-        self.job_positions = [self.valid_positions[cell] for cell in job_cells]
+        
+        self.job_positions = np.zeros((self.n_jobs, 2), dtype=int)
+        for i, cell in enumerate(job_cells):
+            self.job_positions[i] = self.valid_positions[cell]
+            
 
         self.alive_agents = np.ones(self.n_agents)
         self.completed_jobs = np.zeros(self.n_jobs)
@@ -344,6 +322,42 @@ class FourRoomEnv(Env):
             ),
             {},
         )
+    
+    def get_agent_states(self) -> List[AgentState]:
+            """
+            Returns a list of states visible to each agent.
+            Helps with the distinction between self and others.
+
+            Agent states are returned in the order in which they are defined.
+            But the order of other agent positions is randomized at the begining
+            of the env reset and remain consistent!
+            """
+
+            agent_positions = [
+                self.agent_positions[idx] for idx in self.agent_state_order_list
+            ]
+            alive_agents = [self.alive_agents[idx] for idx in self.agent_state_order_list]
+
+            agent_states = [None] * self.n_agents
+
+            for idx, agent in enumerate(self.agent_state_order_list):
+
+                agent_pos = agent_positions[idx]
+                agent_alive = alive_agents[idx]
+
+                other_agents_pos = agent_positions[:idx] + agent_positions[idx + 1 :]
+                other_agents_alive = alive_agents[:idx] + alive_agents[idx + 1 :]
+
+                agent_states[agent] = AgentState(
+                    agent_position=agent_pos,
+                    agent_alive=agent_alive,
+                    other_agent_positions=other_agents_pos,
+                    other_agents_alive=other_agents_alive,
+                    completed_jobs=self.completed_jobs,
+                    job_positions=self.job_positions,
+                )
+
+            return agent_states
 
     def step(self, agent_actions):
         """
@@ -584,18 +598,19 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
         self.observation_space = spaces.Tuple(
             (
-                spaces.MultiDiscrete(
-                    [self.n_rows, self.n_cols] * self.n_agents
+                spaces.Box(
+                    low=0, high=self.n_rows, shape=(self.n_agents, 2), dtype=int
                 ),  # Agent positions
-                spaces.MultiDiscrete(
-                    [self.n_rows, self.n_cols] * self.n_jobs
+                spaces.Box(
+                    low=0, high=self.n_rows, shape=(self.n_jobs, 2), dtype=int
                 ),  # Job positions
                 spaces.MultiBinary(self.n_jobs),  # Completed jobs
                 spaces.MultiBinary(self.n_agents),  # Alive agents
                 spaces.MultiBinary(self.n_agents),  # Who has used their tag
-                spaces.MultiDiscrete([self.n_agents] * self.n_agents),  # Tag counts
-                spaces.Discrete(self.tag_reset_interval),
-                # NOTE: Timer for resetting tag counts
+                spaces.Box(
+                    low=0, high=self.n_agents, shape=(self.n_agents,), dtype=int
+                ), # Tag counts
+                spaces.Box(low=1, high=self.tag_reset_interval, shape=(1,), dtype=int),  # Time left for tag reset
             )
         )
 
