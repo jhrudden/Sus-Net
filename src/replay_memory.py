@@ -190,7 +190,6 @@ class FastReplayBuffer:
         """
 
         sample_idx = torch.tensor(self.trajectory_dict.sample(n_samples=batch_size), dtype=torch.int)
-        print(sample_idx)
 
         seq = torch.ones((batch_size, self.trajectory_size), dtype=torch.int) * -1
 
@@ -209,7 +208,6 @@ class FastReplayBuffer:
             
         
         seq = torch.flip(seq, dims=[1])
-        print(seq)
 
         return Batch(
             states=self.states[seq],
