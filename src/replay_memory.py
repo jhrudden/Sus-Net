@@ -28,6 +28,8 @@ class TrajectoryReplayBuffer:
         # initializing the trajectory length tracker
         self.trajectory_lengths = torch.zeros(max_size)
 
+        self.valid_samples = torch.zeros(max_size)
+
     def add(self, state, action, reward, next_state, done, timestep):
         """Add a transition to the buffer.
 
@@ -64,15 +66,17 @@ class TrajectoryReplayBuffer:
 
             self.trajectory_lengths[incement_mask] += 1
 
+            # removing index from valid samples list
+            self.valid_samples[self.idx] = 0
+
             # Circulate the pointer to the next position
             self.idx = (self.idx + 1) % self.max_size
             # Update the current buffer size
             self.size = min(self.size + 1, self.max_size)
 
-        # # self-padding (initial time step of episode is padded to fit trajectory sequence)
-        # if timestep == 0:
-        #     for i in range(1, self.trajectory_size):
-        #         self.add(state, action, reward, next_state, done, i)
+        # only add valid samples that do not wrap around buffer
+        if self.idx - self.trajectory_size >= 0 or self.idx == 0:
+            self.valid_samples[self.idx - self.trajectory_size] = 1
 
     def sample(self, batch_size) -> Batch:
         """Sample a batch of experiences.
@@ -85,12 +89,8 @@ class TrajectoryReplayBuffer:
         """
 
         # sampling only full trajectories and those which do not wrap around the buffer
-        valid_indexes = torch.where(
-            self.trajectory_lengths[: self.max_size - self.trajectory_size + 1]
-            == self.trajectory_size
-        )[0]
         sample_indices = torch.multinomial(
-            valid_indexes.float(), batch_size, replacement=False
+            self.valid_samples, batch_size, replacement=False
         )
 
         # Calculate the full set of indices to extract
