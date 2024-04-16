@@ -84,7 +84,11 @@ class TrajectoryReplayBuffer:
         :rtype: Batch
         """
 
-        valid_indexes = torch.where(self.trajectory_lengths == self.trajectory_size)[0]
+        # sampling only full trajectories and those which do not wrap around the buffer
+        valid_indexes = torch.where(
+            self.trajectory_lengths[: self.max_size - self.trajectory_size + 1]
+            == self.trajectory_size
+        )[0]
         sample_indices = torch.multinomial(
             valid_indexes.float(), batch_size, replacement=False
         )
