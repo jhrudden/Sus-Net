@@ -1,0 +1,5 @@
+name: GitHub Actions Workflow
+run-name: ${{ github.actor }} is testing pushing! 🚀
+on: [push]
+jobs:
+    - uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
