@@ -174,11 +174,6 @@ class FastReplayBuffer:
         # Update the current buffer size
         self.size = min(self.size + 1, self.max_size)
 
-        # # self-padding (initial time step of episode is padded to fit trajectory sequence)
-        # if timestep == 0:
-        #     for i in range(1, self.trajectory_size):
-        #         self.add(state, action, reward, next_state, done, i)
-
     def sample(self, batch_size) -> Batch:
         """Sample a batch of experiences.
 
