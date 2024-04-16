@@ -1,20 +1,21 @@
+import torch
+import numpy as np
+from collections import namedtuple
+
 # Batch namedtuple, i.e. a class which contains the given attributes
 Batch = namedtuple("Batch", ("states", "actions", "rewards", "next_states", "dones"))
 
 
 class ReplayMemory:
-    def __init__(self, max_size, state_size):
-        """Replay memory implemented as a circular buffer.
+    def __init__(self, max_size, state_size, sequence_size):
 
-        Experiences will be removed in a FIFO manner after reaching maximum
-        buffer size.
-
-        Args:
-            - max_size: Maximum size of the buffer
-            - state_size: Size of the state-space features for the environment
-        """
         self.max_size = max_size
+        self.sequence_size = sequence_size
         self.state_size = state_size
+
+        self.sample_idx_to_buffer_idx = {}
+
+        self.start_idxs = {}
 
         # Preallocating all the required memory, for speed concerns
         self.states = torch.empty((max_size, state_size))
@@ -22,13 +23,17 @@ class ReplayMemory:
         self.rewards = torch.empty((max_size, 1))
         self.next_states = torch.empty((max_size, state_size))
         self.dones = torch.empty((max_size, 1), dtype=torch.bool)
+        self.timesteps = torch.empty((max_size, 1), dtype=torch.long)
+        self.is_start = torch.empty((max_size, 1), dtype=torch.bool)
+        self.episode_idx = torch.empty((max_size, 1), dtype=torch.long)
 
         # Pointer to the current location in the circular buffer
         self.idx = 0
         # Indicates number of transitions currently stored in the buffer
         self.size = 0
+        self.ep_idx = 0
 
-    def add(self, state, action, reward, next_state, done):
+    def add(self, state, action, reward, next_state, done, is_start, timestep):
         """Add a transition to the buffer.
 
         :param state: 1-D np.ndarray of state-features
@@ -38,6 +43,14 @@ class ReplayMemory:
         :param done: Boolean value indicating the end of an episode
         """
 
+        # if is_start:
+        #     for _ in range(self.sequence_size):
+        #         self.add(# dummy )
+        offset_idx = (self.idx + self.sequence_size - 1) % self.max_size
+
+        if is_start:
+            self.idx = offset_idx
+
         # YOUR CODE HERE: Store the input values into the appropriate
         # attributes, using the current buffer position `self.idx`
         self.states[self.idx] = torch.tensor(state)
@@ -45,10 +58,14 @@ class ReplayMemory:
         self.rewards[self.idx] = torch.tensor(reward)
         self.next_states[self.idx] = torch.tensor(next_state)
         self.dones[self.idx] = torch.tensor(done)
+        self.is_start[self.idx] = is_start
+        self.timesteps[self.idx] = timestep
 
-        ...
+        self.sample_idx_to_buffer_idx[self.idx] = self.idx
+        del_idx = (self.idx + self.sequence_size - 1) % self.max_size
+        if del_idx in self.sample_idx_to_buffer_idx:
+            del self.sample_idx_to_buffer_idx[del_idx]
 
-        # DO NOT EDIT
         # Circulate the pointer to the next position
         self.idx = (self.idx + 1) % self.max_size
         # Update the current buffer size
@@ -110,3 +127,8 @@ class ReplayMemory:
 
             if step_idx >= num_steps:
                 break
+
+    def get_del_idx_offset(self, idx):
+        i = idx + self.sequence_size - 1
+        if i >= self.max_size:
+            return i - self.max_size
