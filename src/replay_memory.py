@@ -188,22 +188,23 @@ class FastReplayBuffer:
 
         seq = torch.ones((batch_size, self.trajectory_size), dtype=torch.int) * -1
 
+        # print(sample_idx)
+        # print(self.starts[sample_idx])
+
         for i in range(self.trajectory_size):
             new_idx = (sample_idx - i) % self.max_size
             neg = seq[:, i] == -1
 
             seq[neg, i] = new_idx[neg].squeeze()
 
-            starts = self.starts[new_idx][neg].squeeze()
-            if torch.any(starts) and i < self.trajectory_size - 1:
-                seq[starts, i:] = new_idx[starts].unsqueeze(1).repeat(1, self.trajectory_size - i)
+            starts = self.starts[new_idx].squeeze()
+
+            fill_condition = (starts & neg & (i < self.trajectory_size - 1)).squeeze()
+            seq[fill_condition, i:] = new_idx[fill_condition].unsqueeze(1).repeat(1, self.trajectory_size - i)
 
             if not torch.any(neg):
                 break
-            
         
-        seq = torch.flip(seq, dims=[1])
-
         return Batch(
             states=self.states[seq],
             actions=self.actions[seq],
