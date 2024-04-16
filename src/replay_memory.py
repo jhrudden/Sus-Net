@@ -38,27 +38,41 @@ class TrajectoryReplayBuffer:
         :param done: Boolean value indicating the end of an episode
         """
 
-        self.states[self.idx] = torch.tensor(state)
-        self.actions[self.idx] = torch.tensor(action)
-        self.rewards[self.idx] = torch.tensor(reward)
-        self.next_states[self.idx] = torch.tensor(next_state)
-        self.dones[self.idx] = torch.tensor(done)
-        self.timesteps[self.idx] = timestep
+        n_interts = 1
 
-        self.trajectory_lengths[self.idx] = 0
-        self.trajectory_lengths[
-            self.idx - min(timestep, self.trajectory_size - 1) : self.idx + 1
-        ] += 1
-
-        # Circulate the pointer to the next position
-        self.idx = (self.idx + 1) % self.max_size
-        # Update the current buffer size
-        self.size = min(self.size + 1, self.max_size)
-
-        # self-padding (initial time step of episode is padded to fit trajectory sequence)
+        # check if padding is needed
         if timestep == 0:
-            for i in range(1, self.trajectory_size):
-                self.add(state, action, reward, next_state, done, i)
+            n_interts = self.trajectory_size
+
+        for insert_idx in range(n_interts):
+
+            self.states[self.idx] = torch.tensor(state)
+            self.actions[self.idx] = torch.tensor(action)
+            self.rewards[self.idx] = torch.tensor(reward)
+            self.next_states[self.idx] = torch.tensor(next_state)
+            self.dones[self.idx] = torch.tensor(done)
+            self.timesteps[self.idx] = timestep
+
+            self.trajectory_lengths[self.idx] = 0
+
+            if timestep == 0:
+                update_idx = self.idx - insert_idx
+            else:
+                update_idx = self.idx - (self.trajectory_size - 1)
+
+            incement_mask = torch.arange(update_idx, self.idx + 1, 1, dtype=torch.int)
+
+            self.trajectory_lengths[incement_mask] += 1
+
+            # Circulate the pointer to the next position
+            self.idx = (self.idx + 1) % self.max_size
+            # Update the current buffer size
+            self.size = min(self.size + 1, self.max_size)
+
+        # # self-padding (initial time step of episode is padded to fit trajectory sequence)
+        # if timestep == 0:
+        #     for i in range(1, self.trajectory_size):
+        #         self.add(state, action, reward, next_state, done, i)
 
     def sample(self, batch_size) -> Batch:
         """Sample a batch of experiences.
