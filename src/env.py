@@ -201,28 +201,28 @@ class FourRoomEnv(Env):
 
         # NOTE: This is the 2D grid of 4 rooms that we saw in the previous examples however, no goal and start states are defined
         # Coordinate system is (x, y) where x is the horizontal and y is the vertical direction
-        self.walls = [
-            (0, 4),
-            (2, 4),
-            (3, 4),
-            (4, 4),
-            (5, 4),
-            (6, 4),
-            (8, 4),
-            (4, 0),
-            (4, 2),
-            (4, 3),
-            (4, 5),
-            (4, 6),
-            (4, 8),
-        ]
+        self.walls = np.array([
+            [0, 4],
+            [2, 4],
+            [3, 4],
+            [4, 4],
+            [5, 4],
+            [6, 4],
+            [8, 4],
+            [4, 0],
+            [4, 2],
+            [4, 3],
+            [4, 5],
+            [4, 6],
+            [4, 8],
+        ])
+
+        self.grid = np.ones((9, 9), dtype=bool)
+        self.grid[self.walls[:, 1], self.walls[:, 0]] = 0
+        self.valid_positions = np.argwhere(self.grid)
 
         self.n_rows = 9
         self.n_cols = 9
-
-        self.valid_positions = [
-            [x, y] for x in range(9) for y in range(9) if (x, y) not in self.walls
-        ]
 
         self.action_space = spaces.Discrete(len(Action))
 
@@ -281,23 +281,18 @@ class FourRoomEnv(Env):
         agent_cells = np.random.choice(
             len(self.valid_positions), size=self.n_agents, replace=True
         )
-        self.agent_positions = np.zeros((self.n_agents, 2), dtype=int)
-        for i, cell in enumerate(agent_cells):
-            self.agent_positions[i] = self.valid_positions[cell]
+        self.agent_positions = self.valid_positions[agent_cells]
 
         # random job positions
         # NOTE: any two jobs can't be at the same position
         job_cells = np.random.choice(
             len(self.valid_positions), size=self.n_jobs, replace=False
         )
-        
-        self.job_positions = np.zeros((self.n_jobs, 2), dtype=int)
-        for i, cell in enumerate(job_cells):
-            self.job_positions[i] = self.valid_positions[cell]
-            
 
-        self.alive_agents = np.ones(self.n_agents)
-        self.completed_jobs = np.zeros(self.n_jobs)
+        self.job_positions = self.valid_positions[job_cells]
+
+        self.alive_agents = np.ones(self.n_agents, dtype=bool)
+        self.completed_jobs = np.zeros(self.n_jobs, dtype=bool)
 
         # used to shuffle the order in which get_agent_state builds states
         # if imposters are always first, eventually alg will learn to vote out first players
@@ -309,9 +304,9 @@ class FourRoomEnv(Env):
         self.agent_action_map = {}
         for agent_idx in range(self.n_agents):
             if agent_idx < self.n_imposters:
-                self.agent_action_map[agent_idx] = IMPOSTER_ACTIONS.copy()
+                self.agent_action_map[agent_idx] = IMPOSTER_ACTIONS.copy() + [len(IMPOSTER_ACTIONS) + i for i in range(self.n_agents)]
             else:
-                self.agent_action_map[agent_idx] = CREW_ACTIONS.copy()
+                self.agent_action_map[agent_idx] = CREW_ACTIONS.copy() + [len(CREW_ACTIONS) + i for i in range(self.n_agents)]
 
         return (
             (
@@ -501,84 +496,30 @@ class FourRoomEnv(Env):
 
         # agent attempts to fix
         elif agent_action == Action.FIX:
-            job_idx = self._get_job_idx_at_pos(pos)
+            job_idx = self._get_job_at_pos(pos)
             if job_idx is not None and not self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 1
             self.agent_rewards[agent_idx] = self.job_reward
 
         # agent attempts to sabotage
         elif agent_action == Action.SABOTAGE:
-            job_idx = self._get_job_idx_at_pos(pos)
+            job_idx = self._get_job_at_pos(pos)
             if job_idx is not None and self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 0
             self.agent_rewards[agent_idx] = -1 * self.job_reward
 
     def _get_agents_at_pos(self, pos) -> List[int]:
-        # only returns living agents
-        return [
-            i
-            for i, val in enumerate(self.agent_positions)
-            if val == pos and self.alive_agents[i]
-        ]
+        alive = np.argwhere(self.alive_agents).flatten()
+        agents_at_pos = alive[np.all(self.agent_positions[alive] == pos, axis=1)]
+        return agents_at_pos
 
-    def _get_job_idx_at_pos(self, pos) -> int | None:
-        for job_idx, job_pos in enumerate(self.job_positions):
-            if job_pos == pos:
-                return job_idx
-        return None
+    def _get_job_at_pos(self, pos) -> int | None:
+        idx = np.argwhere(np.all(self.job_positions == pos, axis=1))
+        return idx[0][0] if idx.size > 0 else None
 
     def _is_valid_position(self, pos):
-        return (
-            pos not in self.walls
-            and 0 <= pos[0] < self.n_cols
-            and 0 <= pos[1] < self.n_rows
-        )
-
-    def render(self):
-        """
-        Use matplotlib to render the current state of the environment.
-
-        This method draws the current state of the environment using a 2D grid of cells.
-        The walls are drawn in black, the agents are drawn in blue, the jobs are drawn in green,
-        and the completed jobs are drawn in red.
-        """
-
-        # this should be a 2D grid of cells with the following colors:
-        # - black for walls
-        # - blue for crew
-        # - red for imposters
-        # - green for yellow
-        # - grey for completed jobs
-        # - white for empty cells
-        grid = np.zeros((self.n_rows, self.n_cols, 3))
-
-        for i in range(self.n_rows):
-            for j in range(self.n_cols):
-                grid[i, j] = [1, 1, 1]
-
-        # draw walls
-        for wall in self.walls:
-            grid[wall[1], wall[0]] = [0, 0, 0]
-
-        # draw jobs
-        for job in self.job_positions:
-            grid[job[1], job[0]] = [0, 1, 0]
-
-        # draw completed jobs
-        for job_idx, completed in enumerate(self.completed_jobs):
-            job = self.job_positions[job_idx]
-            grid[job[1], job[0]] = [1, 0, 0] if completed else [0, 1, 0]
-
-        # draw agents
-        for agent_idx, pos in enumerate(self.agent_positions):
-            if self.alive_agents[agent_idx]:
-                grid[pos[1], pos[0]] = [0, 0, 1]
-
-        # flip the grid to match the coordinate system
-        grid = np.flip(grid, 0)
-
-        plt.imshow(grid)
-        plt.show()
+        assert self.n_cols == self.n_rows # this function assumes a square grid
+        return np.all(pos >= 0 and pos < self.n_cols) and np.all(pos < self.grid.shape) and self.grid[pos[1], pos[0]]
 
 
 class FourRoomEnvWithTagging(FourRoomEnv):
