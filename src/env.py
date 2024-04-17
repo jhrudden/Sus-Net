@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Optional
 import numpy as np
 from gymnasium import Env, spaces
+import torch
 
 """
 TODO:
@@ -180,7 +181,9 @@ class FourRoomEnv(Env):
         return spaces.flatten(self.observation_space, state)
 
     def unflatten_state(self, state):
-        print(state)
+        # if tensor, convert to numpy array
+        if isinstance(state, torch.Tensor):
+            state = state.numpy()
         return spaces.unflatten(self.observation_space, state)
 
     def _validate_init_args(self, n_imposters, n_crew, n_jobs):

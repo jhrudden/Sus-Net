@@ -1,8 +1,9 @@
 from typing import List, Tuple
-from src.env import FourRoomEnv
-from abc import ABC, abstractmethod
 import numpy as np
 import torch
+
+from src.env import FourRoomEnv
+from abc import ABC, abstractmethod
 
 
 Q1_mask = np.zeros((9, 9))
@@ -16,23 +17,35 @@ Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
-# TODO: Sequence 
-class SequenceFeaturizer():
-    def __init__(self, env: FourRoomEnv):
+class SequenceStateFeaturizer():
+    def __init__(self, env: FourRoomEnv, state: Tuple, imposter_locations: List[Tuple]):
         self.env = env
-        self.state_size = env
+        self.state_size = env.flattened_state_size
+        self.states = [env.unflatten_state(s) for s in torch.unbind(state, dim=0)]
+        self.imposter_locations = imposter_locations
 
-    def featurize(self, state_sequence: torch.tensor, imposter_locations: torch.tensor) -> torch.tensor:
-        assert state_sequence.shape[0] == imposter_locations.shape[0], "State sequence and imposter locations must have the same length"
-        assert state_sequence.size(1) == self.env.flattened_state_size, "State sequence must have the same size as the flattened state size"
-        return torch.stack([
-            self._featurize_state(self.env.unflatten_state(s_i.numpy()), imposter_locations[idx].numpy())
-            for idx, s_i in  enumerate(torch.unbind(state_sequence, dim=0))
-        ])
+        self.sp_f = AgentPositionsFeaturizer(env.n_cols, env.n_rows)
+
+        self.spatial = self._featurize_state()
     
-    def _featurize_state(self, state: Tuple, imposter_positions) -> np.array:
-        print(state, imposter_positions)
-        return torch.tensor([])
+    """goals of FeaturizedState:
+        1. holds all logic about spatial and non-spatial features
+           - will hold a global spatial featurized state
+           - will expose get_agent_state(agent_idx: int) method to return:
+                 - agent spatial featurized version (permuted so the agent is top channel)
+                 - agent non-spatial featurized version
+                 - all state will be for sequence of trajectory length
+    """
+    def _featurize_state(self) -> torch.tensor:
+        spatial_features = torch.stack([
+            self.sp_f.extract_features(state)
+            for state in self.states
+        ])
+        # Needs to also featurize non-spatial features
+        return spatial_features
+    
+    def get_agent_state(self, agent_idx: int) -> Tuple[torch.tensor, torch.tensor]:
+        raise NotImplementedError("Need to implement get agent state method.")
 
 class SpatialFeaturizer(ABC):
     """Returns a 3D Numpy array for the specific feacture."""
@@ -50,10 +63,10 @@ class SpatialFeaturizer(ABC):
         raise NotImplementedError("Need to implement extract features method.")
 
     def get_blank_features(self, num_channels):
-        return np.zeros((num_channels, self.game_width, self.game_height))
+        return torch.zeros((num_channels, self.game_width, self.game_height), dtype=torch.float32)
 
 
-class SelfPositionFeaturizer(SpatialFeaturizer):
+class PositionFeaturizer(SpatialFeaturizer):
     """
     1 channel: 1 in positon of agent and 0 everywhere else
     """
@@ -80,7 +93,7 @@ class AgentsAtPositionFeaturizer(SpatialFeaturizer):
         return features
 
 
-class AgentPositionsFeaturizer(SelfPositionFeaturizer):
+class AgentPositionsFeaturizer(PositionFeaturizer):
     """
     n_agent_channels:
     Makes a channel per agent. Each channel has 1 in the location of the agent, 0 everywhere else.
@@ -88,18 +101,12 @@ class AgentPositionsFeaturizer(SelfPositionFeaturizer):
     """
 
     def extract_features(self, agent_state: Tuple):
-        n_agents = 1 + len(agent_state.other_agent_positions)
-
+        positions = agent_state[0]
+        n_agents, _ = positions.shape
         features = self.get_blank_features(num_channels=n_agents)
-
-        # position of the current agent
-        features[0] = super().extract_features()
-
-        # positions of other agents
-        for idx, (alive, (x, y)) in enumerate(
-            zip(agent_state.other_agents_alive, agent_state.other_agent_positions)
-        ):
-            features[idx, x, y] += alive
+        
+        for i, (x, y) in enumerate(positions):
+            features[i, x, y] = 1
 
         return features
 
