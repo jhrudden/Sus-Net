@@ -270,7 +270,9 @@ class FourRoomEnv(Env):
         self.imposter_idxs = np.random.choice(
             range(self.n_agents), size=self.n_imposters, replace=False
         )
-        print(f"Imposters at {self.imposter_idxs}")
+        self.imposter_mask = np.zeros(self.n_agents, dtype=bool)
+        self.imposter_mask[self.imposter_idxs] = True
+        print(f"Imposters are  {self.imposter_idxs}")
 
         # Select agent and job positions randomly from the valid positions
 
@@ -409,8 +411,8 @@ class FourRoomEnv(Env):
         # check more or = imposters than crew (imposters won)
         if (
             self.alive_agents.sum()
-            - self.alive_agents[self.imposter_idxs]  # crew memebrs
-            <= self.alive_agents[self.imposter_idxs]  # imposters
+            - self.alive_agents[self.imposter_idxs].sum()  # crew memebrs
+            <= self.alive_agents[self.imposter_idxs].sum()  # imposters
         ):
             print("Imposters won!")
             return True, -1 * self.game_end_reward
@@ -450,17 +452,18 @@ class FourRoomEnv(Env):
         elif agent_action == Action.KILL:
 
             # who else is at this position
-            agents_at_pos = self._get_agents_at_pos(pos)
-
-            agents_at_pos.remove(agent_idx)
+            agents_at_pos = self._get_agents_at_pos(pos, crew_only=True)
 
             if agents_at_pos:
                 # choosing random victim
                 victim_idx = np.random.choice(agents_at_pos)
+                assert (
+                    victim_idx not in self.imposter_idxs
+                ), "Imposter cannot be killed. Only voted out!"
                 print(
-                    f"Agent {victim_idx} at {self.agent_positions[victim_idx]} got killed!!!"
+                    f"Agent {victim_idx} at {self.agent_positions[victim_idx]} got killed by {agent_idx}!!!"
                 )
-                print(f"Imposter at {self.agent_positions[self.imposter_idxs[0]]}!!!")
+                print(f"Imposter at {self.agent_positions[agent_idx]}!!!")
 
                 # updating alive list
                 self.alive_agents[victim_idx] = 0
@@ -483,8 +486,12 @@ class FourRoomEnv(Env):
                 self.completed_jobs[job_idx] = 0
             self.agent_rewards[agent_idx] = -1 * self.job_reward
 
-    def _get_agents_at_pos(self, pos) -> List[int]:
-        alive = np.argwhere(self.alive_agents).flatten()
+    def _get_agents_at_pos(self, pos, crew_only=True) -> List[int]:
+        if crew_only:
+            alive = np.argwhere(self.alive_agents & ~self.imposter_mask).flatten()
+        else:
+            alive = np.argwhere(self.alive_agents).flatten()
+
         agents_at_pos = alive[np.all(self.agent_positions[alive] == pos, axis=1)]
         return agents_at_pos.tolist()
 
