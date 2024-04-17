@@ -7,7 +7,7 @@ class SequenceStateVisualizer:
         self.featurizer = featurizer
         self.cmap = cmap
     
-    def visualize_state(self, sequence_idx: int, ax: plt.Axes = None):
+    def visualize_step(self, sequence_idx: int, ax: plt.Axes = None):
         spatial, states = self.featurizer.spatial, self.featurizer.states
         player_positions = states[sequence_idx][0]
         
@@ -57,7 +57,7 @@ class SequenceStateVisualizer:
             # add title to row
             label = "S$_{t" + ("-" + str(seq_idx) if seq_idx > 0 else "") + "}$"
             ax[seq_idx][0].set_ylabel(label, rotation=0, labelpad=40, fontsize=20)
-            self.visualize_state(seq_idx, ax[seq_idx])
+            self.visualize_step(seq_idx, ax[seq_idx])
 
         plt.tight_layout()
         plt.show()

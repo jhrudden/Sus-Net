@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Generator, List, Tuple
 import numpy as np
 import torch
 
@@ -18,10 +18,10 @@ Q4_mask[5:, :5] = 1.0
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
 class SequenceStateFeaturizer():
-    def __init__(self, env: FourRoomEnv, state: Tuple, imposter_locations: List[Tuple]):
+    def __init__(self, env: FourRoomEnv, state_sequence: Tuple, imposter_locations: List[Tuple]):
         self.env = env
         self.state_size = env.flattened_state_size
-        self.states = [env.unflatten_state(s) for s in torch.unbind(state, dim=0)]
+        self.states = [env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)]
         self.imposter_locations = imposter_locations
 
         self.sp_f = AgentPositionsFeaturizer(env.n_cols, env.n_rows)
@@ -37,15 +37,38 @@ class SequenceStateFeaturizer():
                  - all state will be for sequence of trajectory length
     """
     def _featurize_state(self) -> torch.tensor:
+        """
+        Featurizes the state of the environment based on order of input states.
+
+        THIS METHOD DOES NOT:
+        - do any agent-specific featurization
+
+        Returns:
+            torch.tensor: 3D tensor of spatial features.
+            TODO: 1D tensor of non-spatial features.
+        """
         spatial_features = torch.stack([
             self.sp_f.extract_features(state)
             for state in self.states
         ])
-        # Needs to also featurize non-spatial features
         return spatial_features
     
-    def get_agent_state(self, agent_idx: int) -> Tuple[torch.tensor, torch.tensor]:
-        raise NotImplementedError("Need to implement get agent state method.")
+    def generator(self) -> Generator[Tuple[torch.tensor, torch.tensor], None, None]:
+        """
+        Generator that yields the featurized state from each agent's perspective.
+
+        Yields:
+            Tuple[torch.tensor, torch.tensor]: Tuple of spatial and non-spatial features.
+            # TODO: only returns spatial features for now.
+        """
+        spatial_rep = self.spatial.clone()
+        agents = torch.arange(self.env.n_agents)
+        for agent_idx in agents:
+            agents[0] = agent_idx
+            if agent_idx > 0:
+                agents[agent_idx] = agent_idx - 1
+            yield spatial_rep[:, agents, :, :].clone(), None
+        
 
 class SpatialFeaturizer(ABC):
     """Returns a 3D Numpy array for the specific feacture."""
