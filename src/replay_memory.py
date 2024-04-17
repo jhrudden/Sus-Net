@@ -35,7 +35,7 @@ class FastReplayBuffer:
         self.next_states = torch.empty((max_size, state_size))
         self.dones = torch.empty((max_size, 1), dtype=torch.bool)
         self.starts = torch.empty((max_size, 1), dtype=torch.bool)
-        self.imposters = torch.empty((max_size, n_imposters))
+        self.imposters = torch.empty((max_size, n_imposters), dtype=torch.int16)
 
         # initializing current index and buffer size
         self.idx = 0
@@ -114,9 +114,10 @@ class FastReplayBuffer:
             starts = self.starts[new_idx].squeeze()
 
             fill_condition = (starts & neg & (i < self.trajectory_size - 1)).squeeze()
-            seq[fill_condition, i:] = (
-                new_idx[fill_condition].unsqueeze(1).repeat(1, self.trajectory_size - i)
-            )
+            if fill_condition.sum() > 0:
+                seq[fill_condition, i:] = (
+                    new_idx[fill_condition].unsqueeze(1).repeat(1, self.trajectory_size - i)
+                )
 
             if not torch.any(neg):
                 break
