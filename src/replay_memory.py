@@ -118,7 +118,12 @@ class TrajectoryReplayBuffer:
 
 
 class FastReplayBuffer:
-    def __init__(self, max_size, trajectory_size, state_size):
+    def __init__(self, max_size: int, trajectory_size: int, state_size: int, n_agents: int):
+
+        assert max_size > 0, "Replay buffer size must be positive"
+        assert trajectory_size > 0, "Trajectory size must be positive"
+        assert state_size > 0, "State size must be positive"
+        assert n_agents > 0, "Number of agents must be positive"
 
         self.max_size = max_size
         self.trajectory_size = trajectory_size
@@ -128,8 +133,8 @@ class FastReplayBuffer:
 
         # initalizing the timestep buffer
         self.states = torch.empty((max_size, state_size))
-        self.actions = torch.empty((max_size, 1), dtype=torch.long)
-        self.rewards = torch.empty((max_size, 1))
+        self.actions = torch.empty((max_size, n_agents), dtype=torch.long)
+        self.rewards = torch.empty((max_size, n_agents))
         self.next_states = torch.empty((max_size, state_size))
         self.dones = torch.empty((max_size, 1), dtype=torch.bool)
         self.starts = torch.empty((max_size, 1), dtype=torch.bool)
@@ -196,7 +201,6 @@ class FastReplayBuffer:
             neg = seq[:, i] == -1
 
             seq[neg, i] = new_idx[neg].squeeze()
-
             starts = self.starts[new_idx].squeeze()
 
             fill_condition = (starts & neg & (i < self.trajectory_size - 1)).squeeze()
@@ -204,6 +208,8 @@ class FastReplayBuffer:
 
             if not torch.any(neg):
                 break
+        
+        seq = torch.flip(seq, [1])
         
         return Batch(
             states=self.states[seq],
@@ -220,6 +226,22 @@ class FastReplayBuffer:
         :param num_steps: Number of steps to populate the replay memory
         """
 
-        # TODO
-
-        pass
+        step = 0
+        while step < num_steps:
+            s, _ = env.reset()
+            state = env.flatten_state(s)
+            done = False
+            truncation = False
+            start = True
+            while not done and not truncation:
+                action = env.sample_actions()
+                n_s, reward, done, truncation, _ = env.step(action)
+                print(reward)
+                next_state = env.flatten_state(n_s)
+                self.add(state, action, reward, next_state, done, is_start=start)
+                state = next_state
+                step += 1
+                start = False
+                if step >= num_steps:
+                    break
+        

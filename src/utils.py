@@ -1,5 +1,5 @@
-from typing import Union, Any
-import torch
+from typing import Union
+import numpy as np
 
 def calculate_cnn_output_dim(input_size, kernel_sizes, strides, paddings):
     output_size = input_size
@@ -54,6 +54,6 @@ class EnhancedOrderedDict():
         return key in self.set
         
     def sample(self, n_samples: int = 1):
-        cut = torch.randint(0, self.size, (n_samples,))
+        cut = np.random.choice(self.size, n_samples, replace=False)
         idx_in_keys = (cut + self.tail) % self.max_size
         return [self.keys[i] for i in idx_in_keys]
