@@ -266,6 +266,12 @@ class FourRoomEnv(Env):
         if seed is not None:
             np.random.seed(seed)
 
+        # randomize imposter positions
+        self.imposter_idxs = np.random.choice(
+            range(self.n_agents), size=self.n_imposters, replace=False
+        )
+        print(f"Imposters at {self.imposter_idxs}")
+
         # Select agent and job positions randomly from the valid positions
 
         # random agent positions
@@ -285,19 +291,15 @@ class FourRoomEnv(Env):
         self.alive_agents = np.ones(self.n_agents, dtype=bool)
         self.completed_jobs = np.zeros(self.n_jobs, dtype=bool)
 
-        # used to shuffle the order in which get_agent_state builds states
-        # if imposters are always first, eventually alg will learn to vote out first players
-        self.agent_state_order_list = np.arange(self.n_agents)
-        np.random.shuffle(self.agent_state_order_list)
-
         # Agent Action Map: keeps tracks of actions available to each agent
         # when agent_step is called, this list is indexed to get the action
         self.agent_action_map = {}
         for agent_idx in range(self.n_agents):
-            if agent_idx < self.n_imposters:
-                self.agent_action_map[agent_idx] = self.imposter_actions.copy()
-            else:
-                self.agent_action_map[agent_idx] = self.crew_actions.copy()
+            self.agent_action_map[agent_idx] = self.crew_actions.copy()
+
+        # overwrite actions for imposters
+        for imposter_idx in self.imposter_idxs:
+            self.agent_action_map[imposter_idx] = self.imposter_actions.copy()
 
         return (
             (
@@ -314,44 +316,6 @@ class FourRoomEnv(Env):
         for agent_idx in self.agent_action_map:
             actions[agent_idx] = np.random.choice(len(self.agent_action_map[agent_idx]))
         return actions
-
-    def get_agent_states(self) -> List[AgentState]:
-        """
-        Returns a list of states visible to each agent.
-        Helps with the distinction between self and others.
-
-        Agent states are returned in the order in which they are defined.
-        But the order of other agent positions is randomized at the begining
-        of the env reset and remain consistent!
-        """
-
-        agent_positions_ordered = self.agent_positions[self.agent_state_order_list]
-        alive_agents_ordered = self.alive_agents[self.agent_state_order_list]
-
-        agent_states = [None] * self.n_agents
-
-        for idx, agent in enumerate(self.agent_state_order_list):
-
-            agent_pos = agent_positions_ordered[idx]
-            agent_alive = alive_agents_ordered[idx]
-
-            other_agents_pos = agent_positions_ordered[
-                np.all(self.agent_state_order_list != agent, axis=1)
-            ]
-            other_agents_alive = alive_agents_ordered[
-                np.all(self.agent_state_order_list != agent, axis=1)
-            ]
-
-            agent_states[agent] = AgentState(
-                agent_position=agent_pos,
-                agent_alive=agent_alive,
-                other_agent_positions=other_agents_pos,
-                other_agents_alive=other_agents_alive,
-                completed_jobs=self.completed_jobs,
-                job_positions=self.job_positions,
-            )
-
-        return agent_states
 
     def step(self, agent_actions):
         """
@@ -438,13 +402,15 @@ class FourRoomEnv(Env):
 
         # NOTE: We might need to know the role of agents for this...
         # check for no imposters (crew members won)
-        if np.sum(self.alive_agents[: self.n_imposters]) == 0:
+        if np.sum(self.alive_agents[self.imposter_idxs]) == 0:
             print("CREW won!")
             return True, self.game_end_reward
 
         # check more or = imposters than crew (imposters won)
-        if np.sum(self.alive_agents[: self.n_imposters]) >= np.sum(
-            self.alive_agents[self.n_imposters :]
+        if (
+            self.alive_agents.sum()
+            - self.alive_agents[self.imposter_idxs]  # crew memebrs
+            <= self.alive_agents[self.imposter_idxs]  # imposters
         ):
             print("Imposters won!")
             return True, -1 * self.game_end_reward
@@ -494,7 +460,7 @@ class FourRoomEnv(Env):
                 print(
                     f"Agent {victim_idx} at {self.agent_positions[victim_idx]} got killed!!!"
                 )
-                print(f"Imposter at {self.agent_positions[0]}!!!")
+                print(f"Imposter at {self.agent_positions[self.imposter_idxs[0]]}!!!")
 
                 # updating alive list
                 self.alive_agents[victim_idx] = 0
@@ -584,14 +550,10 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         self.tag_reset_timer = 0
 
         # updating agent_action_map to include tagging actions
-        for state_idx, agent_idx in enumerate(self.agent_state_order_list):
-
-            # represented as an index of agent been tagged
-            tag_actions = self.agent_state_order_list[
-                self.agent_state_order_list != agent_idx
+        for agent_idx in range(self.n_agents):
+            tag_actions = np.arange(self.n_agents)[
+                np.arange(self.n_agents) != agent_idx
             ]
-            # print(f"Agent {agent_idx} can tag agents {tag_actions}")
-
             self.agent_action_map[agent_idx] = np.hstack(
                 [self.agent_action_map[agent_idx], tag_actions]
             )

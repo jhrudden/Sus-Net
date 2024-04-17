@@ -4,16 +4,19 @@ from src.utils import EnhancedOrderedDict
 
 # Batch namedtuple, i.e. a class which contains the given attributes
 Batch = namedtuple(
-    "Batch", ("states", "actions", "rewards", "next_states", "agent_order", "dones")
+    "Batch", ("states", "actions", "rewards", "next_states", "imposters", "dones")
 )
 
 
 class FastReplayBuffer:
     def __init__(
-        self, max_size: int, trajectory_size: int, state_size: int, n_agents: int
+        self,
+        max_size: int,
+        trajectory_size: int,
+        state_size: int,
+        n_agents: int,
+        n_imposters: int,
     ):
-        self.added = 0
-
         assert max_size > 0, "Replay buffer size must be positive"
         assert trajectory_size > 0, "Trajectory size must be positive"
         assert state_size > 0, "State size must be positive"
@@ -32,7 +35,7 @@ class FastReplayBuffer:
         self.next_states = torch.empty((max_size, state_size))
         self.dones = torch.empty((max_size, 1), dtype=torch.bool)
         self.starts = torch.empty((max_size, 1), dtype=torch.bool)
-        self.agent_orders = torch.empty((max_size, n_agents))
+        self.imposters = torch.empty((max_size, n_imposters))
 
         # initializing current index and buffer size
         self.idx = 0
@@ -48,10 +51,9 @@ class FastReplayBuffer:
         reward,
         next_state,
         done,
-        agent_order,
+        imposters,
         is_start: bool = False,
     ):
-        self.added += 1
         """Add a transition to the buffer.
 
         :param state: 1-D np.ndarray of state-features
@@ -76,7 +78,7 @@ class FastReplayBuffer:
         self.next_states[self.idx] = torch.tensor(next_state)
         self.dones[self.idx] = torch.tensor(done)
         self.starts[self.idx] = torch.tensor(is_start)
-        self.agent_orders[self.idx] = torch.tensor(agent_order)
+        self.imposters[self.idx] = torch.tensor(imposters)
 
         self.trajectory_dict.insert(self.idx)
 
@@ -126,7 +128,7 @@ class FastReplayBuffer:
             actions=self.actions[seq],
             rewards=self.rewards[seq],
             next_states=self.next_states[seq],
-            agent_order=self.agent_orders[seq],
+            imposters=self.imposters[seq],
             dones=self.dones[seq],
         )
 
@@ -148,13 +150,13 @@ class FastReplayBuffer:
             start = True
             while not done and not truncation:
                 # print(step)
-                agent_order = env.agent_state_order_list
+                imposters = env.imposter_idxs
                 action = env.sample_actions()
                 n_s, reward, done, truncation, _ = env.step(action)
                 # print(reward)
                 next_state = env.flatten_state(n_s)
                 self.add(
-                    state, action, reward, next_state, done, agent_order, is_start=start
+                    state, action, reward, next_state, done, imposters, is_start=start
                 )
                 state = next_state
                 step += 1
