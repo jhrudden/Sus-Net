@@ -1,4 +1,4 @@
-# Imposter-Net
+# Sus-Net
 
 ### Setup
 
