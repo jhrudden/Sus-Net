@@ -19,22 +19,24 @@ class EnhancedOrderedDict():
 
     # use head and tail for array to handle lazy deletion for O(1) time complexity
     def insert(self, key: Union[str, int]):
-        if self.size + 1 > self.max_size:
+        wrapped = False
+        if len(self.keys) == self.max_size:
             # delete the tail element
-            self.set.remove(self.keys[self.tail])
-            self.tail = (self.tail + 1) % self.max_size
-            self.size -= 1
-        
-        # NOTE: going to assume that the key is unique
-        self.set.add(key)
-        # append at tail if size is less than max_size
-        if self.tail > 0:
-            self.keys[self.tail-1] = key
-            self.size += 1
+            if self.size == self.max_size:
+                self.set.remove(self.keys[self.tail])
+                self.tail = (self.tail + 1) % self.max_size
+
+            self.set.add(key)
+            print(self.tail, self.size)
+            head = (self.tail + self.size - (self.size == self.max_size)) % self.max_size
+            self.keys[head] = key
+            self.size = min(self.size + 1, self.max_size)
+
         else:
+            self.set.add(key)
             self.keys.append(key)
             self.size += 1
-    
+        
     def pop(self):
         """
         Remove from tail
