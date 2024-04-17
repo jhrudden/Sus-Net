@@ -1,7 +1,6 @@
 from enum import Enum
 from typing import List, Optional
 import numpy as np
-import matplotlib.pyplot as plt
 from gymnasium import Env, spaces
 
 """
@@ -86,63 +85,6 @@ IMPOSTER_ACTIONS = [
     Action.SABOTAGE,
     Action.KILL,
 ]
-
-
-class AgentState:
-
-    def __init__(
-        self,
-        agent_position,
-        agent_alive: bool,
-        other_agent_positions,
-        other_agents_alive,
-        completed_jobs,
-        job_positions,
-    ):
-        # agent state
-        self.agent_position = agent_position
-        self.agent_alive = agent_alive
-
-        # other agent state
-        self.other_agent_positions = other_agent_positions
-        self.other_agents_alive = other_agents_alive
-
-        # other game state values
-        self.completed_jobs = completed_jobs
-        self.job_positions = job_positions
-
-
-class AgentStateWithTagging(AgentState):
-
-    def __init__(
-        self,
-        agent_position,
-        agent_alive: bool,
-        agent_used_tag_action: bool,
-        agent_tag_count: int,
-        other_agent_positions,
-        other_agents_alive,
-        other_agents_tag_counts,
-        completed_jobs,
-        job_positions,
-        tag_timer,
-    ):
-        super().__init__(
-            agent_position,
-            agent_alive,
-            other_agent_positions,
-            other_agents_alive,
-            completed_jobs,
-            job_positions,
-        )
-
-        # agent state
-        self.agent_used_tag_action = agent_used_tag_action
-        self.agent_tag_count = agent_tag_count
-
-        # other agent state
-        self.tag_timer = tag_timer
-        self.other_agents_tag_counts = other_agents_tag_counts
 
 
 class FourRoomEnv(Env):
@@ -238,6 +180,7 @@ class FourRoomEnv(Env):
         return spaces.flatten(self.observation_space, state)
 
     def unflatten_state(self, state):
+        print(state)
         return spaces.unflatten(self.observation_space, state)
 
     def _validate_init_args(self, n_imposters, n_crew, n_jobs):
@@ -573,53 +516,6 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         )
 
         return state, {}
-
-    def get_agent_states(self) -> List[AgentState]:
-        """
-        Returns a list of states visible to each agent.
-        Helps with the distinction between self and others.
-
-        Agent states are returned in the order in which they are defined.
-        But the order of other agent positions is randomized at the begining
-        of the env reset and remain consistent!
-        """
-
-        agent_positions = [
-            self.agent_positions[idx] for idx in self.agent_state_order_list
-        ]
-        alive_agents = [self.alive_agents[idx] for idx in self.agent_state_order_list]
-        used_tag_actions = [
-            self.used_tag_actions[idx] for idx in self.agent_state_order_list
-        ]
-        tag_counts = [self.tag_counts[idx] for idx in self.agent_state_order_list]
-
-        agent_states = [None] * self.n_agents
-
-        for idx, agent in enumerate(self.agent_state_order_list):
-
-            agent_pos = agent_positions[idx]
-            agent_alive = alive_agents[idx]
-            agent_used_tag_action = used_tag_actions[idx]
-            agent_tag_count = tag_counts[idx]
-
-            other_agents_pos = agent_positions[idx + 1 :] + agent_positions[:idx]
-            other_agents_alive = alive_agents[idx + 1 :] + alive_agents[:idx]
-            other_agent_tag_count = tag_counts[idx + 1 :] + tag_counts[:idx]
-
-            agent_states[agent] = AgentStateWithTagging(
-                agent_position=agent_pos,
-                agent_alive=agent_alive,
-                agent_used_tag_action=agent_used_tag_action,
-                agent_tag_count=agent_tag_count,
-                other_agent_positions=other_agents_pos,
-                other_agents_alive=other_agents_alive,
-                other_agents_tag_counts=other_agent_tag_count,
-                completed_jobs=self.completed_jobs,
-                job_positions=self.job_positions,
-                tag_timer=self.tag_reset_interval - self.tag_reset_timer,
-            )
-
-        return agent_states
 
     def _agent_tag(self, agent_idx, agent_tagged):
         """Can only tag someone if your tag is unused and if the tagged agent is alive."""
