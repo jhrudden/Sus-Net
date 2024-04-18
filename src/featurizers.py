@@ -2,7 +2,7 @@ from typing import Generator, List, Tuple
 import numpy as np
 import torch
 
-from src.env import FourRoomEnv
+from src.env import FourRoomEnv, StateFields
 from abc import ABC, abstractmethod
 
 
@@ -17,17 +17,22 @@ Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
-class SequenceStateFeaturizer():
-    def __init__(self, env: FourRoomEnv, state_sequence: Tuple, imposter_locations: List[Tuple]):
+
+class SequenceStateFeaturizer:
+    def __init__(
+        self, env: FourRoomEnv, state_sequence: Tuple, imposter_locations: List[Tuple]
+    ):
         self.env = env
         self.state_size = env.flattened_state_size
-        self.states = [env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)]
+        self.states = [
+            env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
+        ]
         self.imposter_locations = imposter_locations
 
-        self.sp_f = AgentPositionsFeaturizer(env.n_cols, env.n_rows)
+        self.sp_f = AgentPositionsFeaturizer(env=env)
 
         self.spatial = self._featurize_state()
-    
+
     """goals of FeaturizedState:
         1. holds all logic about spatial and non-spatial features
            - will hold a global spatial featurized state
@@ -36,6 +41,7 @@ class SequenceStateFeaturizer():
                  - agent non-spatial featurized version
                  - all state will be for sequence of trajectory length
     """
+
     def _featurize_state(self) -> torch.tensor:
         """
         Featurizes the state of the environment based on order of input states.
@@ -47,12 +53,11 @@ class SequenceStateFeaturizer():
             torch.tensor: 3D tensor of spatial features.
             TODO: 1D tensor of non-spatial features.
         """
-        spatial_features = torch.stack([
-            self.sp_f.extract_features(state)
-            for state in self.states
-        ])
+        spatial_features = torch.stack(
+            [self.sp_f.extract_features(state) for state in self.states]
+        )
         return spatial_features
-    
+
     def generator(self) -> Generator[Tuple[torch.tensor, torch.tensor], None, None]:
         """
         Generator that yields the featurized state from each agent's perspective.
@@ -68,25 +73,25 @@ class SequenceStateFeaturizer():
             if agent_idx > 0:
                 agents[agent_idx] = agent_idx - 1
             yield spatial_rep[:, agents, :, :].clone(), None
-        
+
 
 class SpatialFeaturizer(ABC):
     """Returns a 3D Numpy array for the specific feacture."""
 
     def __init__(
         self,
-        game_width,
-        game_height,
+        env,
     ):
-        self.game_width = game_width
-        self.game_height = game_height
+        self.env = env
 
     @abstractmethod
     def extract_features(agent_state: Tuple) -> np.array:
         raise NotImplementedError("Need to implement extract features method.")
 
     def get_blank_features(self, num_channels):
-        return torch.zeros((num_channels, self.game_width, self.game_height), dtype=torch.float32)
+        return torch.zeros(
+            (num_channels, self.env.n_cols, self.env.n_rows), dtype=torch.float32
+        )
 
 
 class PositionFeaturizer(SpatialFeaturizer):
@@ -123,13 +128,16 @@ class AgentPositionsFeaturizer(PositionFeaturizer):
     Exepcted to help with learning which agent is which over time.
     """
 
-    def extract_features(self, agent_state: Tuple):
-        positions = agent_state[0]
+    def extract_features(self, agent_state: Tuple, alive_only: bool = True):
+        print(agent_state)
+        positions = agent_state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+        alive = agent_state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
         n_agents, _ = positions.shape
         features = self.get_blank_features(num_channels=n_agents)
-        
+
         for i, (x, y) in enumerate(positions):
-            features[i, x, y] = 1
+            if alive_only and alive[i]:
+                features[i, x, y] = 1
 
         return features
 

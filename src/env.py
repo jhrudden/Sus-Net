@@ -19,6 +19,16 @@ TODO:
 """
 
 
+class StateFields(Enum):
+    AGENT_POSITIONS = 0
+    JOB_POSITIONS = 1
+    JOB_STATUS = 2
+    ALIVE_AGENTS = 3
+    USED_TAGS = 4
+    TAG_COUNTS = 5
+    TAG_RESET_COUNT = 6
+
+
 class Action(Enum):
 
     # Move Actions
@@ -108,6 +118,17 @@ class FourRoomEnv(Env):
         if random_state is not None:
             np.random.seed(random_state)
 
+        self.state_fields = {
+            field: idx
+            for idx, field in enumerate(
+                [
+                    StateFields.AGENT_POSITIONS,
+                    StateFields.JOB_POSITIONS,
+                    StateFields.JOB_STATUS,
+                    StateFields.ALIVE_AGENTS,
+                ]
+            )
+        }
         self.is_action_order_random = is_action_order_random
         self.n_imposters = n_imposters
         self.n_crew = n_crew
@@ -466,6 +487,21 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         self, *args, tag_reset_interval: int = 50, vote_reward: int = 3, **kwargs
     ):
         super().__init__(*args, **kwargs)
+
+        self.state_fields = {
+            field: idx
+            for idx, field in enumerate(
+                [
+                    StateFields.AGENT_POSITIONS,
+                    StateFields.JOB_POSITIONS,
+                    StateFields.JOB_STATUS,
+                    StateFields.ALIVE_AGENTS,
+                    StateFields.USED_TAGS,
+                    StateFields.TAG_COUNTS,
+                    StateFields.TAG_RESET_COUNT,
+                ]
+            )
+        }
         self.tag_counts = np.zeros(self.n_agents)
         self.used_tag_actions = np.zeros(self.n_agents)
         self.tag_reset_timer = 0
