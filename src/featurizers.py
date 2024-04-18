@@ -30,15 +30,18 @@ class SequenceStateFeaturizer:
         self.states = [
             env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
         ]
+        self.sequence_len = len(self.states)
         self.imposter_locations = imposter_locations
 
         self.sp_f = CombineFeaturizer(
             featurizers=[AgentPositionsFeaturizer(env=env), JobFeaturizer(env=env)]
         )
-        self.non_sp_f = CombineFeaturizer([AliveAgentFeaturizer(env=env)])
+        self.local_non_sp_f = CombineFeaturizer([AliveAgentFeaturizer(env=env)])
         self.global_non_sp_f = CombineFeaturizer([JobStatusFeaturizer(env=env)])
 
-        self.spatial, self.non_spacial = self._featurize_state()
+        self.spatial, self.agent_non_spacial, self.global_non_spatial = (
+            self._featurize_state()
+        )
 
     """goals of FeaturizedState:
         1. holds all logic about spatial and non-spatial features
@@ -63,11 +66,15 @@ class SequenceStateFeaturizer:
         spatial_features = torch.stack(
             [self.sp_f.extract_features(state) for state in self.states]
         )
-        non_spacial_features = torch.stack(
-            [self.non_sp_f.extract_features(state) for state in self.states]
+        agent_non_spacial_features = torch.stack(
+            [self.local_non_sp_f.extract_features(state) for state in self.states]
+        ).view(self.sequence_len, -1, self.env.n_agents)
+
+        global_non_spacial_features = torch.stack(
+            [self.global_non_sp_f.extract_features(state) for state in self.states]
         )
 
-        return spatial_features, non_spacial_features
+        return spatial_features, agent_non_spacial_features, global_non_spacial_features
 
     def generator(self) -> Generator[Tuple[torch.tensor, torch.tensor], None, None]:
         """
@@ -79,25 +86,36 @@ class SequenceStateFeaturizer:
         """
 
         spatial_rep = self.spatial.clone()
-        non_spacial_rep = self.non_spacial.clone()
+        agent_non_spacial_rep = self.agent_non_spacial.clone()
+        global_non_spacial_rep = self.global_non_spatial.clone()
 
         print(spatial_rep.shape)
-        print(non_spacial_rep.shape)
+        print(agent_non_spacial_rep.shape)
+        print(global_non_spacial_rep.shape)
 
         n_channels = torch.arange(spatial_rep.shape[1])
-        non_spacial_dim = torch.arange(non_spacial_rep.shape[1])
+        agent_non_spacial_dim = torch.arange(agent_non_spacial_rep.shape[2])
 
         for agent_idx in range(self.env.n_agents):
             n_channels[0] = agent_idx
-            non_spacial_dim[0] = agent_idx
+            agent_non_spacial_dim[0] = agent_idx
             if agent_idx > 0:
                 n_channels[agent_idx] = agent_idx - 1
-                non_spacial_dim[agent_idx] = agent_idx - 1
+                agent_non_spacial_dim[agent_idx] = agent_idx - 1
 
-            yield (
-                spatial_rep[:, n_channels, :, :].clone(),
-                non_spacial_rep[:, non_spacial_dim].clone(),
+            non_spatial = torch.cat(
+                [
+                    agent_non_spacial_rep[:, :, agent_non_spacial_dim]
+                    .clone()
+                    .view(self.sequence_len, -1),
+                    global_non_spacial_rep,
+                ],
+                dim=1,
             )
+
+            print(non_spatial)
+
+            yield (spatial_rep[:, n_channels, :, :].clone(), non_spatial)
 
 
 class SpatialFeaturizer(ABC):
