@@ -17,9 +17,10 @@ Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
+
 class StateSequenceFeaturizer(ABC):
     """
-    Featurizer that takes a sequence of states and imposter locations and featurizes them. 
+    Featurizer that takes a sequence of states and imposter locations and featurizes them.
 
     Exposes a generator that yields the featurized state from each agent's perspective.
 
@@ -27,6 +28,7 @@ class StateSequenceFeaturizer(ABC):
         env (FourRoomEnv): The environment.
         sequence_len (int): The length of the sequence.
     """
+
     def __init__(self, env: FourRoomEnv, sequence_len: int):
         self.env = env
         self.state_size = env.flattened_state_size
@@ -58,12 +60,13 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
     """
     Featurizer that takes a sequence of states and imposter locations and featurizes them from each agent's perspective.
 
-    How does this differ from GlobalFeaturizer? 
+    How does this differ from GlobalFeaturizer?
     PerspectiveFeaturizer featurizes takes a more agent-centric view of the environment.
-    All state representations are from the perspective of the agent. 
+    All state representations are from the perspective of the agent.
     - Spatial features, agent in question is always at the top, and other agents are ordered based on their index in increasing order.
-    - Non-spatial are also ordered based on the agent in question. TODO: Dima, say more
+    - Non-spatial are also ordered based on the agent in question.
     """
+
     def __init__(self, env: FourRoomEnv, sequence_len: int):
         super().__init__(env, sequence_len)
 
@@ -83,7 +86,9 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         )
 
     def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]):
-        assert len(state_sequence) == self.sequence_len, f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
+        assert (
+            len(state_sequence) == self.sequence_len
+        ), f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
         self.states = [
             self.env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
         ]
@@ -109,9 +114,9 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         return spatial_features, agent_non_spacial_features, global_non_spacial_features
 
     def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
-        spatial_rep = self.spatial.clone()
-        agent_non_spacial_rep = self.agent_non_spacial.clone()
-        global_non_spacial_rep = self.global_non_spatial.clone()
+        spatial_rep = self.spatial.detach().clone()
+        agent_non_spacial_rep = self.agent_non_spacial.detach().clone()
+        global_non_spacial_rep = self.global_non_spatial.detach().clone()
 
         n_channels = torch.arange(spatial_rep.shape[1])
         agent_non_spacial_dim = torch.arange(agent_non_spacial_rep.shape[2])
@@ -126,6 +131,7 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
             non_spatial = torch.cat(
                 [
                     agent_non_spacial_rep[:, :, agent_non_spacial_dim]
+                    .detach()
                     .clone()
                     .view(self.sequence_len, -1),
                     global_non_spacial_rep,
@@ -133,7 +139,7 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
                 dim=1,
             )
 
-            yield (spatial_rep[:, n_channels, :, :].clone(), non_spatial)
+            yield (spatial_rep[:, n_channels, :, :].detach().clone(), non_spatial)
 
 
 class GlobalFeaturizer(StateSequenceFeaturizer):
@@ -143,6 +149,7 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
     How does this differ from PerspectiveFeaturizer?
     GlobalFeaturizer does not shift ordering of channels based on the agent in question. Instead we just simply append one-hot encoding of the agent index to the non-spatial features.
     """
+
     def __init__(self, env: FourRoomEnv, sequence_len: int):
         super().__init__(env, sequence_len)
 
@@ -162,7 +169,9 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
         )
 
     def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]) -> None:
-        assert len(state_sequence) == self.sequence_len, f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
+        assert (
+            len(state_sequence) == self.sequence_len
+        ), f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
         self.states = [
             self.env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
         ]
@@ -186,7 +195,10 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
             agent_idx_tensor = torch.zeros(self.sequence_len, self.env.n_agents)
             agent_idx_tensor[:, agent_idx] = 1
 
-            yield (self.spatial.clone(), torch.cat([self.non_spatial.clone(), agent_idx_tensor], dim=1))
+            yield (
+                self.spatial.detach().clone(),
+                torch.cat([self.non_spatial.detach().clone(), agent_idx_tensor], dim=1),
+            )
 
 
 class SpatialFeaturizer(ABC):
