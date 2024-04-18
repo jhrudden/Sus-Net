@@ -93,8 +93,8 @@ class FastReplayBuffer:
         If the buffer contains less that `batch_size` transitions, sample all
         of them.
 
-        :param batch_size: Number of transitions to sample
-        :rtype: Batch
+        Parameters
+            - batch_size (int): Number of transitions to sample
         """
 
         sample_idx = torch.tensor(
@@ -118,7 +118,7 @@ class FastReplayBuffer:
 
             if not torch.any(neg):
                 break
-
+        
         seq = torch.flip(seq, [1])
 
         return Batch(

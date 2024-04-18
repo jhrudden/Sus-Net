@@ -11,12 +11,11 @@ class StateSequenceVisualizer:
         self.cmap = cmap
     
     def visualize_global_state(self):
-        self._visualize_sequence(self.featurizer.spatial, self.featurizer.states)
+        self._visualize_sequence(self.featurizer.spatial, title="Global State")
     
     def visualize_perspectives(self):
-        for (spatial, non_spatial) in self.featurizer.generator():
-            print(non_spatial)
-            self._visualize_sequence(spatial)
+        for agent_idx, (spatial, non_spatial) in enumerate(self.featurizer.generator()):
+            self._visualize_sequence(spatial, title=f"Agent {agent_idx}'s Perspective", description=f"Non-Spatial: \n{str(non_spatial)}")
 
     def _visualize_step(self, spatial: torch.Tensor, sequence_idx: int, ax=None):
 
@@ -64,17 +63,19 @@ class StateSequenceVisualizer:
                         color="white" if is_colored else "black",
                     )
 
-    def _visualize_sequence(self, spatial: torch.Tensor):
+    def _visualize_sequence(self, spatial: torch.Tensor, title: str = None, description: str = None):
         seq_len, n_channels, _, __ = spatial.size()
-        n_agents = self.featurizer.env.n_agents
 
         _, ax = plt.subplots(seq_len, n_channels, figsize=(n_channels * 5, seq_len * 5))
 
         for seq_idx in range(seq_len):
             # add title to row
-            label = "S$_{t" + ("-" + str(seq_idx) if seq_idx > 0 else "") + "}$"
+            label = "S$_{t" + ("-" + str(seq_len - seq_idx - 1) if seq_idx < seq_len - 1 else "") + "}$"
             ax[seq_idx][0].set_ylabel(label, rotation=0, labelpad=40, fontsize=20)
             self._visualize_step(spatial, seq_idx, ax[seq_idx])
 
-        plt.tight_layout()
+        if title is not None:
+            plt.suptitle(title, fontsize=20)
+        if description is not None:
+            plt.figtext(0.5, 0.01, description, wrap=True, horizontalalignment='center', fontsize=16)
         plt.show()
