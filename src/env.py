@@ -1,8 +1,9 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple, Dict
 import numpy as np
 from gymnasium import Env, spaces
 import torch
+import logging
 
 """
 TODO:
@@ -17,6 +18,24 @@ TODO:
 
 - Should jobs and killing cause team rewards?
 """
+
+# TODO: move this logging file etc.
+def configure_logging(name="SUSSY_ENV", debug=False):
+    logger = logging.getLogger(name)
+    logger.propagate = False
+
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+
+    if logger.hasHandlers():
+        logger.handlers.clear()
+    
+    logger.addHandler(handler)
+
+    logger.setLevel(logging.DEBUG if debug else logging.WARNING)
+    
+    return logger
 
 
 class StateFields(Enum):
@@ -65,19 +84,6 @@ def move(action, position):
         return position
 
 
-def reverse_action(action):
-    if action == Action.UP:
-        return Action.DOWN
-    elif action == Action.DOWN:
-        return Action.UP
-    elif action == Action.LEFT:
-        return Action.RIGHT
-    elif action == Action.RIGHT:
-        return Action.LEFT
-    elif action == Action.STAY:
-        return Action.STAY
-
-
 CREW_ACTIONS = [
     Action.STAY,
     Action.UP,
@@ -110,6 +116,7 @@ class FourRoomEnv(Env):
         job_reward=1,
         time_step_reward: int = 0,
         game_end_reward: int = 10,
+        debug: bool = False,
     ):
         super().__init__()
 
@@ -117,6 +124,9 @@ class FourRoomEnv(Env):
 
         if random_state is not None:
             np.random.seed(random_state)
+
+        self.logger = configure_logging(debug=debug)
+        
 
         self.state_fields = {
             field: idx
@@ -215,7 +225,7 @@ class FourRoomEnv(Env):
             n_imposters < n_crew
         ), f"Must be more crew members than imposters. Got {n_imposters} imposters and {n_crew} crew members."
 
-    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
+    def reset(self, seed: Optional[int] = None, **kwargs) -> Tuple[Tuple, Dict]:
         """
         Reset the environment to the initial state
 
@@ -239,7 +249,6 @@ class FourRoomEnv(Env):
         )
         self.imposter_mask = np.zeros(self.n_agents, dtype=bool)
         self.imposter_mask[self.imposter_idxs] = True
-        print(f"Imposters are  {self.imposter_idxs}")
 
         # Select agent and job positions randomly from the valid positions
 
@@ -331,7 +340,6 @@ class FourRoomEnv(Env):
 
         # perform action for each agent
         for agent_idx in agent_action_order:
-            # print(f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}")
 
             self._agent_step(
                 agent_idx=agent_idx, agent_action=Action(agent_actions[agent_idx])
@@ -371,20 +379,33 @@ class FourRoomEnv(Env):
 
         # NOTE: We might need to know the role of agents for this...
         # check for no imposters (crew members won)
-        if np.sum(self.alive_agents[self.imposter_idxs]) == 0:
-            print("CREW won!")
-            return True, self.game_end_reward
+        # TODO: Check if all jobs are completed
+        done = False
+        reward = 0
+        if np.sum(self.alive_agents[self.imposter_mask]) == 0:
+            self.logger.debug("CREW won!")
+            done = True
+            reward = self.game_end_reward
 
         # check more or = imposters than crew (imposters won)
-        if (
+        elif (
             self.alive_agents.sum()
-            - self.alive_agents[self.imposter_idxs].sum()  # crew memebrs
-            <= self.alive_agents[self.imposter_idxs].sum()  # imposters
+            - self.alive_agents[self.imposter_mask].sum()  # crew memebrs
+            <= self.alive_agents[self.imposter_mask].sum()  # imposters
         ):
-            print("Imposters won!")
-            return True, -1 * self.game_end_reward
+            self.logger.debug("IMPOSTERS won!")
+            done = True
+            reward = -1 * self.game_end_reward
+        
+        if done:
+            self.logger.debug(f"""
+GAME OVER!
+    Alive Crew: {np.argwhere(self.alive_agents & ~self.imposter_mask).flatten()}
+    Alive Imposters: {np.argwhere(self.alive_agents & self.imposter_mask).flatten()}
+    Completed Jobs: {list(map(tuple, self.job_positions[self.completed_jobs]))}
+            """)
 
-        return False, 0
+        return done, reward
 
     def _agent_step(self, agent_idx, agent_action) -> None:
         """
@@ -400,8 +421,6 @@ class FourRoomEnv(Env):
         - agent_action (Action): The action to be performed by the agent.
             This is an instance of an Action enumeration that includes MOVE, KILL, FIX, and SABOTAGE actions.
         """
-
-        # print(f"{agent_idx}: {agent_action}")
 
         if self.alive_agents[agent_idx] == 0:  # agent is dead
             return
@@ -427,10 +446,10 @@ class FourRoomEnv(Env):
                 assert (
                     victim_idx not in self.imposter_idxs
                 ), "Imposter cannot be killed. Only voted out!"
-                print(
-                    f"Agent {victim_idx} at {self.agent_positions[victim_idx]} got killed by {agent_idx}!!!"
-                )
-                print(f"Imposter at {self.agent_positions[agent_idx]}!!!")
+                
+                self.logger.debug(f"""
+                Agent {victim_idx} ({self.agent_positions[victim_idx]}) got killed by {agent_idx} ({self.agent_positions[agent_idx]})!!!
+                """)
 
                 # updating alive list
                 self.alive_agents[victim_idx] = 0
@@ -467,7 +486,6 @@ class FourRoomEnv(Env):
         return idx[0][0] if idx.size > 0 else None
 
     def _is_valid_position(self, pos):
-        # print(type(pos), pos)
         assert self.n_cols == self.n_rows  # this function assumes a square grid
         valid = np.all(pos >= 0) and np.all(pos < self.n_cols)
         return valid and self.grid[pos[1], pos[0]]
@@ -532,8 +550,8 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             )
         )
 
-    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
-        state, _ = super().reset(seed, options)
+    def reset(self, seed: Optional[int] = None, **kwargs) -> Tuple[Tuple, Dict]:
+        state, _ = super().reset(seed, **kwargs)
         self.tag_counts = np.zeros(self.n_agents)
         self.used_tag_actions = np.zeros(self.n_agents)
         self.tag_reset_timer = 0
@@ -546,6 +564,21 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             self.agent_action_map[agent_idx] = np.hstack(
                 [self.agent_action_map[agent_idx], tag_actions]
             )
+
+        self.logger.debug(f"""
+New Game Started!
+-----------------
+    Agent Positions: {list(map(tuple, self.agent_positions))}
+    Imposters: {np.argwhere(self.imposter_mask).flatten()}
+    Crew Members: {np.argwhere(~self.imposter_mask).flatten()}
+    Alive Agents: {self.alive_agents}
+    Job Positions: {list(map(tuple, self.job_positions))}
+    Completed Jobs: {self.completed_jobs}
+    Tag Counts: {self.tag_counts}
+    Used Tag Actions: {self.used_tag_actions}
+    Time Left for Tag Reset: {self.tag_reset_interval - self.tag_reset_timer}
+-----------------
+        """)
 
         state = (
             *state,
@@ -562,9 +595,16 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             self.used_tag_actions[agent_idx] == 0
             and self.alive_agents[agent_tagged] > 0
         ):
-            # print(f"Agent {agent_idx} is tagging agent {agent_tagged}")
             self.tag_counts[agent_tagged] += 1
             self.used_tag_actions[agent_idx] = 1
+
+            self.logger.debug(
+                f"""Agent {agent_idx} ({self.agent_positions[agent_idx]}) tagged Agent {agent_tagged} ({self.agent_positions[agent_tagged]})! {agent_tagged}'s new tag count: {self.tag_counts[agent_tagged]}"""
+            )
+        else:
+            self.logger.debug(
+                f"""Agent {agent_idx} tried to tag Agent {agent_tagged} but failed!"""
+            )
 
     def step(self, agent_actions):
         """
@@ -616,20 +656,12 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         # perform action for each agent
         for agent_idx in agent_action_order:
 
-            # print(f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}")
-            # print(f'Agent action map: {self.agent_action_map[agent_idx]}')
-
             agent_action = self.agent_action_map[agent_idx][agent_actions[agent_idx]]
 
             if isinstance(agent_action, int):  # this is a tag action
-                # print(f"Agent {agent_idx} trying to tag  {agent_action}")
                 self._agent_tag(agent_idx=agent_idx, agent_tagged=agent_action)
 
             else:
-                # print(
-                #     f"Agent {agent_idx} is performing action {agent_actions[agent_idx]}"
-                # )
-
                 self._agent_step(agent_idx=agent_idx, agent_action=agent_action)
 
         self.tag_counts *= self.alive_agents
@@ -642,7 +674,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
                     -1 if agent_idx < self.n_imposters else 1
                 )  # NOTE: overriding the reward for the agent who was tagged too many times
 
-                print(f"Agent {agent_idx} got voted OUT!")
+                self.logger.debug(f"""Agent {agent_idx} got voted OUT! Tag Count / Alive Agents: {tag_count} / {self.alive_agents.sum()}""")
 
                 # NOTE: reward / punishment for the team based on the role of kicked agent
                 # If agent is an imposter, crew members get a reward
@@ -660,6 +692,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
             self.tag_counts = np.zeros(self.n_agents)
             self.used_tag_actions = np.zeros(self.n_agents)
             self.tag_reset_timer = 0
+            self.logger.debug("Tag counts reset!")
 
         team_win, win_team_reward = self.check_win_condition()
         team_reward += win_team_reward

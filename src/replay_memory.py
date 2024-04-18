@@ -164,6 +164,3 @@ class FastReplayBuffer:
                 start = False
                 if step >= num_steps:
                     break
-
-                if done:
-                    print("WE OUT   ", step, episode_id)
