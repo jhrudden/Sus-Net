@@ -36,8 +36,17 @@ class SequenceStateFeaturizer:
         self.sp_f = CombineFeaturizer(
             featurizers=[AgentPositionsFeaturizer(env=env), JobFeaturizer(env=env)]
         )
-        self.local_non_sp_f = CombineFeaturizer([AliveAgentFeaturizer(env=env)])
-        self.global_non_sp_f = CombineFeaturizer([JobStatusFeaturizer(env=env)])
+        self.agent_non_sp_f = CombineFeaturizer(
+            [
+                StateFieldFeaturizer(env=env, state_field=StateFields.ALIVE_AGENTS),
+                StateFieldFeaturizer(env=env, state_field=StateFields.TAG_COUNTS),
+            ]
+        )
+        self.global_non_sp_f = CombineFeaturizer(
+            [
+                StateFieldFeaturizer(env=env, state_field=StateFields.JOB_STATUS),
+            ]
+        )
 
         self.spatial, self.agent_non_spacial, self.global_non_spatial = (
             self._featurize_state()
@@ -67,7 +76,7 @@ class SequenceStateFeaturizer:
             [self.sp_f.extract_features(state) for state in self.states]
         )
         agent_non_spacial_features = torch.stack(
-            [self.local_non_sp_f.extract_features(state) for state in self.states]
+            [self.agent_non_sp_f.extract_features(state) for state in self.states]
         ).view(self.sequence_len, -1, self.env.n_agents)
 
         global_non_spacial_features = torch.stack(
@@ -266,19 +275,18 @@ class NonSpatialFeaturizer(ABC):
         raise NotImplementedError("Need to implement extract features method.")
 
 
-class AliveAgentFeaturizer(NonSpatialFeaturizer):
+class StateFieldFeaturizer(NonSpatialFeaturizer):
 
-    def extract_features(self, agent_state: Tuple) -> np.array:
+    def __init__(
+        self,
+        env,
+        state_field,
+    ):
+        super().__init__(env=env)
+        self.state_field = state_field
+
+    def extract_features(self, agent_state: Tuple) -> torch.tensor:
         return torch.tensor(
-            agent_state[self.env.state_fields[StateFields.ALIVE_AGENTS]],
-            dtype=torch.float32,
-        )
-
-
-class JobStatusFeaturizer(NonSpatialFeaturizer):
-
-    def extract_features(self, agent_state: Tuple) -> np.array:
-        return torch.tensor(
-            agent_state[self.env.state_fields[StateFields.JOB_STATUS]],
+            agent_state[self.env.state_fields[self.state_field]],
             dtype=torch.float32,
         )

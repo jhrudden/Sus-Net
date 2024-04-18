@@ -636,7 +636,7 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
         # Check if any agent has been tagged too many times
         for agent_idx, tag_count in enumerate(self.tag_counts):
-            if tag_count > (self.alive_agents.sum() + 1) // 2:
+            if tag_count >= (self.alive_agents.sum() + 1) // 2:
                 self.alive_agents[agent_idx] = 0
                 self.agent_rewards[agent_idx] = self.kill_reward * (
                     -1 if agent_idx < self.n_imposters else 1
