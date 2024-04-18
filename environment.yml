@@ -1,11 +1,13 @@
 name: sus_net
 channels:
   - conda-forge
+  - pytorch
   - defaults
 dependencies:
+  - gymnasium
   - matplotlib
   - numpy
   - pytorch
   - torchvision
-  - gymnasium
-  - pre-commit
+  - ipykernel
+  - pygame
