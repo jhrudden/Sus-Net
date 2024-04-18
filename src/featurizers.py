@@ -20,7 +20,10 @@ ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
 class SequenceStateFeaturizer:
     def __init__(
-        self, env: FourRoomEnv, state_sequence: Tuple, imposter_locations: List[Tuple]
+        self,
+        env: FourRoomEnv,
+        state_sequence: Tuple,
+        imposter_locations: List[Tuple],
     ):
         self.env = env
         self.state_size = env.flattened_state_size
@@ -29,9 +32,13 @@ class SequenceStateFeaturizer:
         ]
         self.imposter_locations = imposter_locations
 
-        self.sp_f = AgentPositionsFeaturizer(env=env)
+        self.sp_f = CombineFeaturizer(
+            featurizers=[AgentPositionsFeaturizer(env=env), JobFeaturizer(env=env)]
+        )
+        self.non_sp_f = CombineFeaturizer([AliveAgentFeaturizer(env=env)])
+        self.global_non_sp_f = CombineFeaturizer([JobStatusFeaturizer(env=env)])
 
-        self.spatial = self._featurize_state()
+        self.spatial, self.non_spacial = self._featurize_state()
 
     """goals of FeaturizedState:
         1. holds all logic about spatial and non-spatial features
@@ -56,7 +63,11 @@ class SequenceStateFeaturizer:
         spatial_features = torch.stack(
             [self.sp_f.extract_features(state) for state in self.states]
         )
-        return spatial_features
+        non_spacial_features = torch.stack(
+            [self.non_sp_f.extract_features(state) for state in self.states]
+        )
+
+        return spatial_features, non_spacial_features
 
     def generator(self) -> Generator[Tuple[torch.tensor, torch.tensor], None, None]:
         """
@@ -66,13 +77,27 @@ class SequenceStateFeaturizer:
             Tuple[torch.tensor, torch.tensor]: Tuple of spatial and non-spatial features.
             # TODO: only returns spatial features for now.
         """
+
         spatial_rep = self.spatial.clone()
-        agents = torch.arange(self.env.n_agents)
-        for agent_idx in agents:
-            agents[0] = agent_idx
+        non_spacial_rep = self.non_spacial.clone()
+
+        print(spatial_rep.shape)
+        print(non_spacial_rep.shape)
+
+        n_channels = torch.arange(spatial_rep.shape[1])
+        non_spacial_dim = torch.arange(non_spacial_rep.shape[1])
+
+        for agent_idx in range(self.env.n_agents):
+            n_channels[0] = agent_idx
+            non_spacial_dim[0] = agent_idx
             if agent_idx > 0:
-                agents[agent_idx] = agent_idx - 1
-            yield spatial_rep[:, agents, :, :].clone(), None
+                n_channels[agent_idx] = agent_idx - 1
+                non_spacial_dim[agent_idx] = agent_idx - 1
+
+            yield (
+                spatial_rep[:, n_channels, :, :].clone(),
+                non_spacial_rep[:, non_spacial_dim].clone(),
+            )
 
 
 class SpatialFeaturizer(ABC):
@@ -153,16 +178,17 @@ class JobFeaturizer(SpatialFeaturizer):
 
         features = self.get_blank_features(num_channels=2)
 
-        for job_position, job_done in zip(
-            agent_state.job_positions, agent_state.completed_jobs
-        ):
+        job_positions = agent_state[self.env.state_fields[StateFields.JOB_POSITIONS]]
+        job_statuses = agent_state[self.env.state_fields[StateFields.JOB_STATUS]]
+
+        for job_position, job_done in zip(job_positions, job_statuses):
             x, y = job_position
             features[int(job_done), x, y] = 1
 
         return features
 
 
-class CombineSpatialFeaturizer(SpatialFeaturizer):
+class CombineFeaturizer(SpatialFeaturizer):
     """
     Combines multiple Spatial featurizers into a single 3D array.
     """
@@ -171,11 +197,12 @@ class CombineSpatialFeaturizer(SpatialFeaturizer):
         self.featurizers = featurizers
 
     def extract_features(self, agent_state: Tuple):
-        features = [f.extract_features(agent_state) for f in self.featurizers]
-        return np.concatenate(features, axis=0)
+        return torch.cat(
+            [f.extract_features(agent_state) for f in self.featurizers], axis=0
+        )
 
 
-class PartiallyObservableFeaturizer(CombineSpatialFeaturizer):
+class PartiallyObservableFeaturizer(CombineFeaturizer):
     """
     Zeros everything that is not visible to the agent.
     """
@@ -189,7 +216,6 @@ class PartiallyObservableFeaturizer(CombineSpatialFeaturizer):
 
         # agent position
         x, y = agent_state.agent_position
-
         # determine observability mask
         obs_mask = self.get_blank_features(num_channels=1)
         for room_mask in ROOM_MASKS:
@@ -206,3 +232,35 @@ class PartiallyObservableFeaturizer(CombineSpatialFeaturizer):
             return np.concatenate([features, obs_mask], axis=0)
 
         return features
+
+
+class NonSpatialFeaturizer(ABC):
+    """Returns a 1D Numpy array for the specific feacture."""
+
+    def __init__(
+        self,
+        env,
+    ):
+        self.env = env
+
+    @abstractmethod
+    def extract_features(agent_state: Tuple) -> np.array:
+        raise NotImplementedError("Need to implement extract features method.")
+
+
+class AliveAgentFeaturizer(NonSpatialFeaturizer):
+
+    def extract_features(self, agent_state: Tuple) -> np.array:
+        return torch.tensor(
+            agent_state[self.env.state_fields[StateFields.ALIVE_AGENTS]],
+            dtype=torch.float32,
+        )
+
+
+class JobStatusFeaturizer(NonSpatialFeaturizer):
+
+    def extract_features(self, agent_state: Tuple) -> np.array:
+        return torch.tensor(
+            agent_state[self.env.state_fields[StateFields.JOB_STATUS]],
+            dtype=torch.float32,
+        )
