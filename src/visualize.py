@@ -1,13 +1,12 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
-from typing import Tuple
 
-from src.featurizers import SequenceStateFeaturizer
+from src.featurizers import StateSequenceFeaturizer
 
 
-class SequenceStateVisualizer:
-    def __init__(self, featurizer: SequenceStateFeaturizer, cmap="Blues"):
+class StateSequenceVisualizer:
+    def __init__(self, featurizer: StateSequenceFeaturizer, cmap="Blues"):
         self.featurizer = featurizer
         self.cmap = cmap
     
@@ -15,8 +14,9 @@ class SequenceStateVisualizer:
         self._visualize_sequence(self.featurizer.spatial, self.featurizer.states)
     
     def visualize_perspectives(self):
-        for (perp, *rest) in self.featurizer.generator():
-            self._visualize_sequence(perp)
+        for (spatial, non_spatial) in self.featurizer.generator():
+            print(non_spatial)
+            self._visualize_sequence(spatial)
 
     def _visualize_step(self, spatial: torch.Tensor, sequence_idx: int, ax=None):
 

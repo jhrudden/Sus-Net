@@ -27,7 +27,6 @@ class EnhancedOrderedDict():
                 self.tail = (self.tail + 1) % self.max_size
 
             self.set.add(key)
-            print(self.tail, self.size)
             head = (self.tail + self.size - (self.size == self.max_size)) % self.max_size
             self.keys[head] = key
             self.size = min(self.size + 1, self.max_size)

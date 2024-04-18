@@ -17,21 +17,55 @@ Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
+class StateSequenceFeaturizer(ABC):
+    """
+    Featurizer that takes a sequence of states and imposter locations and featurizes them. 
 
-class SequenceStateFeaturizer:
-    def __init__(
-        self,
-        env: FourRoomEnv,
-        state_sequence: Tuple,
-        imposter_locations: List[Tuple],
-    ):
+    Exposes a generator that yields the featurized state from each agent's perspective.
+
+    Parameters:
+        env (FourRoomEnv): The environment.
+        sequence_len (int): The length of the sequence.
+    """
+    def __init__(self, env: FourRoomEnv, sequence_len: int):
         self.env = env
         self.state_size = env.flattened_state_size
-        self.states = [
-            env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
-        ]
-        self.sequence_len = len(self.states)
-        self.imposter_locations = imposter_locations
+        self.sequence_len = sequence_len
+
+    @abstractmethod
+    def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]) -> None:
+        """
+        Featurizes the state sequence and imposter locations. Stores the featurized states, this impacts state returned by generator.
+
+        Parameters:
+            state_sequence (Tuple): The state sequence.
+            imposter_locations (List[Tuple]): The imposter locations.
+        """
+        raise NotImplementedError("Need to implement fit method.")
+
+    @abstractmethod
+    def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
+        """
+        Generator that yields the featurized state from each agent's perspective.
+
+        Yields:
+            Tuple[torch.Tensor, torch.Tensor]: Tuple of spatial and non-spatial features.
+        """
+        raise NotImplementedError("Need to implement generator method.")
+
+
+class PerspectiveFeaturizer(StateSequenceFeaturizer):
+    """
+    Featurizer that takes a sequence of states and imposter locations and featurizes them from each agent's perspective.
+
+    How does this differ from GlobalFeaturizer? 
+    PerspectiveFeaturizer featurizes takes a more agent-centric view of the environment.
+    All state representations are from the perspective of the agent. 
+    - Spatial features, agent in question is always at the top, and other agents are ordered based on their index in increasing order.
+    - Non-spatial are also ordered based on the agent in question. TODO: Dima, say more
+    """
+    def __init__(self, env: FourRoomEnv, sequence_len: int):
+        super().__init__(env, sequence_len)
 
         self.sp_f = CombineFeaturizer(
             featurizers=[AgentPositionsFeaturizer(env=env), JobFeaturizer(env=env)]
@@ -48,30 +82,19 @@ class SequenceStateFeaturizer:
             ]
         )
 
+    def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]):
+        assert len(state_sequence) == self.sequence_len, f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
+        self.states = [
+            self.env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
+        ]
+        self.sequence_len = len(self.states)
+        self.imposter_locations = imposter_locations
+
         self.spatial, self.agent_non_spacial, self.global_non_spatial = (
             self._featurize_state()
         )
 
-    """goals of FeaturizedState:
-        1. holds all logic about spatial and non-spatial features
-           - will hold a global spatial featurized state
-           - will expose get_agent_state(agent_idx: int) method to return:
-                 - agent spatial featurized version (permuted so the agent is top channel)
-                 - agent non-spatial featurized version
-                 - all state will be for sequence of trajectory length
-    """
-
-    def _featurize_state(self) -> torch.tensor:
-        """
-        Featurizes the state of the environment based on order of input states.
-
-        THIS METHOD DOES NOT:
-        - do any agent-specific featurization
-
-        Returns:
-            torch.tensor: 3D tensor of spatial features.
-            TODO: 1D tensor of non-spatial features.
-        """
+    def _featurize_state(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         spatial_features = torch.stack(
             [self.sp_f.extract_features(state) for state in self.states]
         )
@@ -85,22 +108,10 @@ class SequenceStateFeaturizer:
 
         return spatial_features, agent_non_spacial_features, global_non_spacial_features
 
-    def generator(self) -> Generator[Tuple[torch.tensor, torch.tensor], None, None]:
-        """
-        Generator that yields the featurized state from each agent's perspective.
-
-        Yields:
-            Tuple[torch.tensor, torch.tensor]: Tuple of spatial and non-spatial features.
-            # TODO: only returns spatial features for now.
-        """
-
+    def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
         spatial_rep = self.spatial.clone()
         agent_non_spacial_rep = self.agent_non_spacial.clone()
         global_non_spacial_rep = self.global_non_spatial.clone()
-
-        print(spatial_rep.shape)
-        print(agent_non_spacial_rep.shape)
-        print(global_non_spacial_rep.shape)
 
         n_channels = torch.arange(spatial_rep.shape[1])
         agent_non_spacial_dim = torch.arange(agent_non_spacial_rep.shape[2])
@@ -122,9 +133,60 @@ class SequenceStateFeaturizer:
                 dim=1,
             )
 
-            print(non_spatial)
-
             yield (spatial_rep[:, n_channels, :, :].clone(), non_spatial)
+
+
+class GlobalFeaturizer(StateSequenceFeaturizer):
+    """
+    Featurizer that takes a sequence of states and imposter locations and featurizes them from a global perspective.
+
+    How does this differ from PerspectiveFeaturizer?
+    GlobalFeaturizer does not shift ordering of channels based on the agent in question. Instead we just simply append one-hot encoding of the agent index to the non-spatial features.
+    """
+    def __init__(self, env: FourRoomEnv, sequence_len: int):
+        super().__init__(env, sequence_len)
+
+        self.spatial_features = CombineFeaturizer(
+            featurizers=[
+                AgentPositionsFeaturizer(env=env),
+                JobFeaturizer(env=env),
+            ]
+        )
+
+        self.non_spatial_features = CombineFeaturizer(
+            featurizers=[
+                StateFieldFeaturizer(env=env, state_field=StateFields.ALIVE_AGENTS),
+                StateFieldFeaturizer(env=env, state_field=StateFields.TAG_COUNTS),
+                StateFieldFeaturizer(env=env, state_field=StateFields.JOB_STATUS),
+            ]
+        )
+
+    def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]) -> None:
+        assert len(state_sequence) == self.sequence_len, f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
+        self.states = [
+            self.env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
+        ]
+        self.sequence_len = len(self.states)
+        self.imposter_locations = imposter_locations
+
+        self.spatial, self.non_spatial = self._featurize_state()
+
+    def _featurize_state(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        spatial_features = torch.stack(
+            [self.spatial_features.extract_features(state) for state in self.states]
+        )
+        non_spatial_features = torch.stack(
+            [self.non_spatial_features.extract_features(state) for state in self.states]
+        )
+
+        return spatial_features, non_spatial_features
+
+    def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
+        for agent_idx in range(self.env.n_agents):
+            agent_idx_tensor = torch.zeros(self.sequence_len, self.env.n_agents)
+            agent_idx_tensor[:, agent_idx] = 1
+
+            yield (self.spatial.clone(), torch.cat([self.non_spatial.clone(), agent_idx_tensor], dim=1))
 
 
 class SpatialFeaturizer(ABC):
@@ -181,7 +243,6 @@ class AgentPositionsFeaturizer(PositionFeaturizer):
     """
 
     def extract_features(self, agent_state: Tuple, alive_only: bool = True):
-        print(agent_state)
         positions = agent_state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
         alive = agent_state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
         n_agents, _ = positions.shape
@@ -285,7 +346,7 @@ class StateFieldFeaturizer(NonSpatialFeaturizer):
         super().__init__(env=env)
         self.state_field = state_field
 
-    def extract_features(self, agent_state: Tuple) -> torch.tensor:
+    def extract_features(self, agent_state: Tuple) -> torch.Tensor:
         return torch.tensor(
             agent_state[self.env.state_fields[self.state_field]],
             dtype=torch.float32,
