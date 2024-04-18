@@ -2,16 +2,18 @@ from matplotlib import pyplot as plt
 import numpy as np
 from src.featurizers import SequenceStateFeaturizer
 
+
 class SequenceStateVisualizer:
-    def __init__(self, featurizer: SequenceStateFeaturizer, cmap='Blues'):
+    def __init__(self, featurizer: SequenceStateFeaturizer, cmap="Blues"):
         self.featurizer = featurizer
         self.cmap = cmap
-    
+
     def visualize_step(self, sequence_idx: int, ax: plt.Axes = None):
         spatial, states = self.featurizer.spatial, self.featurizer.states
         player_positions = states[sequence_idx][0]
-        
-        n_agents, n_rows, n_cols = spatial[sequence_idx, ...].shape
+
+        n_channels, n_rows, n_cols = spatial[sequence_idx, ...].shape
+        n_agents = self.featurizer.env.n_agents
 
         assert n_rows == n_cols, "Only supports square grids"
 
@@ -23,35 +25,45 @@ class SequenceStateVisualizer:
 
         imposters = set(self.featurizer.imposter_locations[sequence_idx].tolist())
 
-        for agent_idx in range(n_agents):
-            is_imposter = agent_idx in imposters
-            role = "Imposter" if is_imposter else "Crewmate"
-            agent_position = player_positions[agent_idx]
+        for channel_idx in range(n_channels):
+            if channel_idx < n_agents:
+                is_imposter = channel_idx in imposters
+                role = "Imposter" if is_imposter else "Crewmate"
+                agent_position = player_positions[channel_idx]
+                ax[channel_idx].set_title(f"{role} {channel_idx} - {agent_position}")
+            else:
+                ax[channel_idx].set_title(f"Other {channel_idx}")
 
-            rotated = np.flipud(spatial[sequence_idx, agent_idx].t().numpy())
+            rotated = np.flipud(spatial[sequence_idx, channel_idx].t().numpy())
 
-
-            ax[agent_idx].imshow(rotated, cmap=self.cmap)
-            ax[agent_idx].grid(True)
-            ax[agent_idx].set_xticks(ticks, minor=False)
-            ax[agent_idx].set_yticks(ticks, minor=False)
-            ax[agent_idx].set_xticklabels([], minor=False)
-            ax[agent_idx].set_yticklabels([], minor=False)
-            ax[agent_idx].tick_params(axis=u'both', which=u'both', length=0)
-            ax[agent_idx].set_title(f"{role} {agent_idx} - {agent_position}")
+            ax[channel_idx].imshow(rotated, cmap=self.cmap)
+            ax[channel_idx].grid(True)
+            ax[channel_idx].set_xticks(ticks, minor=False)
+            ax[channel_idx].set_yticks(ticks, minor=False)
+            ax[channel_idx].set_xticklabels([], minor=False)
+            ax[channel_idx].set_yticklabels([], minor=False)
+            ax[channel_idx].tick_params(axis="both", which="both", length=0)
 
             for y in cells:
                 for x in cells:
-                    is_agent = x == player_positions[agent_idx][0] and y == player_positions[agent_idx][1]
-                    ax[agent_idx].text(x, n_rows - y - 1, str((x,y)), va='center', ha='center',fontsize=8, color='white' if is_agent else 'black')
-
+                    is_colored = spatial[sequence_idx, channel_idx, x, y]
+                    ax[channel_idx].text(
+                        x,
+                        n_rows - y - 1,
+                        str((x, y)),
+                        va="center",
+                        ha="center",
+                        fontsize=8,
+                        color="white" if is_colored else "black",
+                    )
 
     def visualize_sequence(self):
         spatial, states = self.featurizer.spatial, self.featurizer.states
         states = [s[0] for s in states]
-        seq_len, n_agents, _, __ = spatial.size()
+        seq_len, n_channels, _, __ = spatial.size()
+        n_agents = self.featurizer.env.n_agents
 
-        _, ax = plt.subplots(seq_len, n_agents, figsize=(n_agents * 5, seq_len * 5))
+        _, ax = plt.subplots(seq_len, n_channels, figsize=(n_channels * 5, seq_len * 5))
 
         for seq_idx in range(seq_len):
             # add title to row
