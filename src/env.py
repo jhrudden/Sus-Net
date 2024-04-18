@@ -22,11 +22,11 @@ TODO:
 class Action(Enum):
 
     # Move Actions
-    UP = 0
-    DOWN = 1
-    LEFT = 2
-    RIGHT = 3
-    STAY = 4
+    STAY = 0
+    UP = 1
+    DOWN = 2
+    LEFT = 3
+    RIGHT = 4
 
     # Job Actions
     KILL = 5
@@ -69,20 +69,20 @@ def reverse_action(action):
 
 
 CREW_ACTIONS = [
+    Action.STAY,
     Action.UP,
     Action.DOWN,
     Action.RIGHT,
     Action.LEFT,
-    Action.STAY,
     Action.FIX,
 ]
 
 IMPOSTER_ACTIONS = [
+    Action.STAY,
     Action.UP,
     Action.DOWN,
     Action.RIGHT,
     Action.LEFT,
-    Action.STAY,
     Action.SABOTAGE,
     Action.KILL,
 ]
