@@ -6,6 +6,23 @@ from enum import StrEnum
 from src.utils import calculate_cnn_output_dim
 
 
+class RandomEquiprobable(nn.Module):
+    def __init__(self, n_outputs: int):
+        super(RandomEquiprobable, self).__init__()
+        self.n_outputs = n_outputs
+
+    def forward(self, *inputs):
+        batch_size = 1  # default batch size if no inputs are provided
+        if inputs:
+            batch_size = inputs[0].shape[0]
+
+        random_indices = torch.randint(0, self.n_outputs, (batch_size,))
+        outputs = torch.zeros(batch_size, self.n_outputs)
+        outputs[torch.arange(batch_size), random_indices] = 1
+
+        return outputs
+
+
 class ActivationType(StrEnum):
     RELU = "relu"
     SIGMOID = "sigmoid"

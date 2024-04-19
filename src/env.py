@@ -191,6 +191,8 @@ class FourRoomEnv(Env):
 
         self.imposter_actions = IMPOSTER_ACTIONS
         self.crew_actions = CREW_ACTIONS
+        self.n_imposter_actions = len(IMPOSTER_ACTIONS)
+        self.n_crew_actions = len(CREW_ACTIONS)
 
         self.n_rows = 9
         self.n_cols = 9
@@ -537,6 +539,9 @@ class FourRoomEnvWithTagging(FourRoomEnv):
         self.tag_reset_timer = 0
         self.tag_reset_interval = tag_reset_interval
         self.vote_reward = vote_reward
+
+        self.n_imposter_actions = self.n_imposter_actions + self.n_agents - 1
+        self.n_crew_actions = self.n_crew_actions + self.n_agents - 1
 
         self.action_space = spaces.Discrete(
             len(Action) + self.n_agents

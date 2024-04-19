@@ -95,7 +95,7 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         self.sequence_len = len(self.states)
         self.imposter_locations = imposter_locations
 
-        self.spatial, self.agent_non_spacial, self.global_non_spatial = (
+        self.spatial, self.agent_non_spatial, self.global_non_spatial = (
             self._featurize_state()
         )
 
@@ -103,38 +103,38 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         spatial_features = torch.stack(
             [self.sp_f.extract_features(state) for state in self.states]
         )
-        agent_non_spacial_features = torch.stack(
+        agent_non_spatial_features = torch.stack(
             [self.agent_non_sp_f.extract_features(state) for state in self.states]
         ).view(self.sequence_len, -1, self.env.n_agents)
 
-        global_non_spacial_features = torch.stack(
+        global_non_spatial_features = torch.stack(
             [self.global_non_sp_f.extract_features(state) for state in self.states]
         )
 
-        return spatial_features, agent_non_spacial_features, global_non_spacial_features
+        return spatial_features, agent_non_spatial_features, global_non_spatial_features
 
     def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
         spatial_rep = self.spatial.detach().clone()
-        agent_non_spacial_rep = self.agent_non_spacial.detach().clone()
-        global_non_spacial_rep = self.global_non_spatial.detach().clone()
+        agent_non_spatial_rep = self.agent_non_spatial.detach().clone()
+        global_non_spatial_rep = self.global_non_spatial.detach().clone()
 
         n_channels = torch.arange(spatial_rep.shape[1])
-        agent_non_spacial_dim = torch.arange(agent_non_spacial_rep.shape[2])
+        agent_non_spatial_dim = torch.arange(agent_non_spatial_rep.shape[2])
 
         for agent_idx in range(self.env.n_agents):
             n_channels[0] = agent_idx
-            agent_non_spacial_dim[0] = agent_idx
+            agent_non_spatial_dim[0] = agent_idx
             if agent_idx > 0:
                 n_channels[agent_idx] = agent_idx - 1
-                agent_non_spacial_dim[agent_idx] = agent_idx - 1
+                agent_non_spatial_dim[agent_idx] = agent_idx - 1
 
             non_spatial = torch.cat(
                 [
-                    agent_non_spacial_rep[:, :, agent_non_spacial_dim]
+                    agent_non_spatial_rep[:, :, agent_non_spatial_dim]
                     .detach()
                     .clone()
                     .view(self.sequence_len, -1),
-                    global_non_spacial_rep,
+                    global_non_spatial_rep,
                 ],
                 dim=1,
             )
