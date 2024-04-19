@@ -52,7 +52,7 @@ def run_experiment(
     elif who_to_train == AgentTypes.IMPOSTER:
         params_to_train = [imposter_model.parameters()]
     elif who_to_train == AgentTypes.CREW_MEMBER:
-        params_to_train = [imposter_model.parameters()]
+        params_to_train = [crew_model.parameters()]
 
     # initializing optimizer
     if optimizer_type == "Adam":
