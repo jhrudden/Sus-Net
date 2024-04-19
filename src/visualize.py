@@ -8,24 +8,25 @@ import pathlib
 from src.featurizers import StateSequenceFeaturizer
 from src.env import FourRoomEnvWithTagging
 
-ASSETS_PATH = pathlib.Path(__file__).parent.parent / 'assets'
+ASSETS_PATH = pathlib.Path(__file__).parent.parent / "assets"
 
 # Constants for Pygame visualization
-CELL_SIZE = 40  # Pixel size of each cell
+CELL_SIZE = 60  # Pixel size of each cell
 BACKGROUND_COLOR = (30, 30, 30)  # Dark grey
 GRID_COLOR = (200, 200, 200)  # Light grey
 WALL_COLOR = (0, 0, 0)
-CREW_COLOR = (0, 0, 255) # Blue
-IMPOSTOR_COLOR = (255, 0, 0) # Red
+CREW_COLOR = (0, 0, 255)  # Blue
+IMPOSTOR_COLOR = (255, 0, 0)  # Red
 FONT_SIZE = 16
 
-COMPLETED_JOB_COLOR = (0, 255, 0, 100) # Green
-JOB_COlOR = (255, 255, 0) # Yellow
+COMPLETED_JOB_COLOR = (0, 255, 0, 100)  # Green
+JOB_COlOR = (255, 255, 0)  # Yellow
 
-BLOOD_SPLATTER_PATH = ASSETS_PATH / 'blood_splatter.png'
-IMPOSTER_PATH = ASSETS_PATH / 'purple.png'
-CREW_PATH = ASSETS_PATH / 'blue.png'
+BLOOD_SPLATTER_PATH = ASSETS_PATH / "blood_splatter.png"
+IMPOSTER_PATH = ASSETS_PATH / "purple.png"
+CREW_PATH = ASSETS_PATH / "blue.png"
 GAME_PADDING = 50
+
 
 class AmongUsVisualizer:
     def __init__(self, env: FourRoomEnvWithTagging):
@@ -39,30 +40,35 @@ class AmongUsVisualizer:
 
         self.screen = pygame.display.set_mode((self.window_size, self.window_size))
         self.font = pygame.font.Font(None, FONT_SIZE)
-        pygame.display.set_caption(f"Among Us - Four Room Environment {self.grid_size}x{self.grid_size}")
+        pygame.display.set_caption(
+            f"Among Us - Four Room Environment {self.grid_size}x{self.grid_size}"
+        )
 
         blood_spatter_image = pygame.image.load(BLOOD_SPLATTER_PATH)
-        self.blood_spatter_image = pygame.transform.scale(blood_spatter_image, (CELL_SIZE, CELL_SIZE))  # Scale it to fit the cell
+        self.blood_spatter_image = pygame.transform.scale(
+            blood_spatter_image, (CELL_SIZE, CELL_SIZE)
+        )  # Scale it to fit the cell
 
         imposter_image = pygame.image.load(IMPOSTER_PATH)
-        self.imposter_image = pygame.transform.scale(imposter_image, (CELL_SIZE, CELL_SIZE))
+        self.imposter_image = pygame.transform.scale(
+            imposter_image, (CELL_SIZE, CELL_SIZE)
+        )
 
         crew_image = pygame.image.load(CREW_PATH)
         self.crew_image = pygame.transform.scale(crew_image, (CELL_SIZE, CELL_SIZE))
 
-    
     # NOTE: __enter__ and __exit__ methods allow the class to be used as a context manager
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
-    
+
     def render(self):
         """
         Render the Four Room environment based on the current state
         """
-        self.screen.fill(BACKGROUND_COLOR) # clear the screen
+        self.screen.fill(BACKGROUND_COLOR)  # clear the screen
         self._draw_grid()
         self._draw_voting()
         self._draw_jobs()
@@ -70,7 +76,7 @@ class AmongUsVisualizer:
         if self.game_over:
             self._draw_win_text()
         pygame.display.flip()
-    
+
     def _draw_win_text(self):
         big_font = pygame.font.Font(None, 36)  # Use a larger font size, e.g., 36
 
@@ -78,15 +84,21 @@ class AmongUsVisualizer:
         win_text = "Sussy Victory!" if win_reward < 0 else "Crewmates win!"
         text_color = (255, 0, 0) if win_reward < 0 else (0, 255, 0)
         win_surface = big_font.render(win_text, True, text_color)
-        win_rect = win_surface.get_rect(center=(self.window_size // 2, self.window_size // 2))
+        win_rect = win_surface.get_rect(
+            center=(self.window_size // 2, self.window_size // 2)
+        )
 
         border_rect = win_rect.inflate(20, 20)  # Add padding around the text
 
-        pygame.draw.rect(self.screen, text_color, border_rect)  # Border with the same color as the text
-        pygame.draw.rect(self.screen, (0, 0, 0), border_rect.inflate(-4, -4))  # Black background inside the border
+        pygame.draw.rect(
+            self.screen, text_color, border_rect
+        )  # Border with the same color as the text
+        pygame.draw.rect(
+            self.screen, (0, 0, 0), border_rect.inflate(-4, -4)
+        )  # Black background inside the border
 
         self.screen.blit(win_surface, win_rect)
-    
+
     def _calculate_cell(self, x: int, y: int):
         """
         Calculate the cell position based on the x and y coordinates
@@ -107,9 +119,11 @@ class AmongUsVisualizer:
             y (int): Y coordinate
         """
 
-        return x * CELL_SIZE + CELL_SIZE // 2 + GAME_PADDING, y * CELL_SIZE + CELL_SIZE // 2 + GAME_PADDING
+        return (
+            x * CELL_SIZE + CELL_SIZE // 2 + GAME_PADDING,
+            y * CELL_SIZE + CELL_SIZE // 2 + GAME_PADDING,
+        )
 
-    
     def _draw_grid(self):
         """
         Draw environment grid
@@ -133,7 +147,7 @@ class AmongUsVisualizer:
         voted[self.env.alive_agents == 0] = -1
 
         time_left_to_vote = self.env.tag_reset_interval - self.env.tag_reset_timer
-        
+
         screen_width, screen_height = self.screen.get_size()
         votes_text = "Votes: " + " ".join(map(str, vote_counts))
         voted_text = "Voted: " + " ".join(map(str, voted))
@@ -143,7 +157,7 @@ class AmongUsVisualizer:
         voted_surface = self.font.render(voted_text, True, (255, 255, 255))
 
         time_vote_surface = self.font.render(time_text, True, (255, 255, 255))
-        
+
         text_width, text_height = votes_surface.get_size()
 
         time_text_width, time_text_height = time_vote_surface.get_size()
@@ -153,18 +167,35 @@ class AmongUsVisualizer:
 
         bar_left = 10
 
-        pygame.draw.rect(self.screen, (0, 0, 0), (bar_x - 5, bar_y - 5, text_width + 10, text_height*2 + 10))
-        pygame.draw.rect(self.screen, (255, 255, 255), (bar_x - 5, bar_y - 5, text_width + 10, text_height*2 + 10), 1)
+        pygame.draw.rect(
+            self.screen,
+            (0, 0, 0),
+            (bar_x - 5, bar_y - 5, text_width + 10, text_height * 2 + 10),
+        )
+        pygame.draw.rect(
+            self.screen,
+            (255, 255, 255),
+            (bar_x - 5, bar_y - 5, text_width + 10, text_height * 2 + 10),
+            1,
+        )
 
-        pygame.draw.rect(self.screen, (0, 0, 0), (bar_left - 5, bar_y - 5, time_text_width + 10, time_text_height + 10))
-        pygame.draw.rect(self.screen, (255, 255, 255), (bar_left - 5, bar_y - 5, time_text_width + 10, time_text_height + 10), 1)
+        pygame.draw.rect(
+            self.screen,
+            (0, 0, 0),
+            (bar_left - 5, bar_y - 5, time_text_width + 10, time_text_height + 10),
+        )
+        pygame.draw.rect(
+            self.screen,
+            (255, 255, 255),
+            (bar_left - 5, bar_y - 5, time_text_width + 10, time_text_height + 10),
+            1,
+        )
 
         # Blit the text onto the screen
         self.screen.blit(votes_surface, (bar_x, bar_y))
         self.screen.blit(voted_surface, (bar_x, bar_y + text_height))
         self.screen.blit(time_vote_surface, (bar_left, bar_y))
 
-    
     def _draw_agents(self):
         """
         Draw agents on the grid
@@ -183,8 +214,7 @@ class AmongUsVisualizer:
             x, y = self.env.agent_positions[agent_idx]
 
             self._draw_agent(False, agent_idx, x, y)
-        
-    
+
     def _draw_agent(self, is_dead: bool, agent_idx: int, x: int, y: int):
         """
         Draw a single agent on the grid
@@ -209,7 +239,7 @@ class AmongUsVisualizer:
         text_surface = self.font.render(f"{agent_idx}", True, (255, 255, 255))
         text_rect = text_surface.get_rect(center=(center_x, center_y))
         self.screen.blit(text_surface, text_rect)
-    
+
     def _draw_jobs(self):
         """
         Draw jobs on the grid
@@ -224,8 +254,15 @@ class AmongUsVisualizer:
 
             job_color = COMPLETED_JOB_COLOR if is_completed else JOB_COlOR
 
-            pygame.draw.polygon(self.screen, job_color, [(center_x, center_y - CELL_SIZE // 4), (center_x - CELL_SIZE // 4, center_y + CELL_SIZE // 4), (center_x + CELL_SIZE // 4, center_y + CELL_SIZE // 4)])
-
+            pygame.draw.polygon(
+                self.screen,
+                job_color,
+                [
+                    (center_x, center_y - CELL_SIZE // 4),
+                    (center_x - CELL_SIZE // 4, center_y + CELL_SIZE // 4),
+                    (center_x + CELL_SIZE // 4, center_y + CELL_SIZE // 4),
+                ],
+            )
 
     def step(self, actions: List[int]) -> Dict:
         """
@@ -233,7 +270,7 @@ class AmongUsVisualizer:
 
         Args:
             actions (list): List of actions for each agent
-        
+
         Returns:
             dict: Dictionary containing the results from gym.Env.step method
         """
@@ -245,11 +282,11 @@ class AmongUsVisualizer:
         self.render()
 
         return state, reward, done, truncated, info
-    
+
     def reset(self) -> Dict:
         """
         Reset the environment and render the new state
-        
+
         Returns:
             dict: Dictionary containing the results from gym.Env.reset method
         """
@@ -257,7 +294,7 @@ class AmongUsVisualizer:
         self.game_over = False
         self.render()
         return initial
-    
+
     def close(self):
         """
         Close the pygame window
@@ -269,13 +306,17 @@ class StateSequenceVisualizer:
     def __init__(self, featurizer: StateSequenceFeaturizer, cmap="Blues"):
         self.featurizer = featurizer
         self.cmap = cmap
-    
+
     def visualize_global_state(self):
         self._visualize_sequence(self.featurizer.spatial, title="Global State")
-    
+
     def visualize_perspectives(self):
         for agent_idx, (spatial, non_spatial) in enumerate(self.featurizer.generator()):
-            self._visualize_sequence(spatial, title=f"Agent {agent_idx}'s Perspective", description=f"Non-Spatial: \n{str(non_spatial)}")
+            self._visualize_sequence(
+                spatial,
+                title=f"Agent {agent_idx}'s Perspective",
+                description=f"Non-Spatial: \n{str(non_spatial)}",
+            )
 
     def _visualize_step(self, spatial: torch.Tensor, sequence_idx: int, ax=None):
 
@@ -323,19 +364,32 @@ class StateSequenceVisualizer:
                         color="white" if is_colored else "black",
                     )
 
-    def _visualize_sequence(self, spatial: torch.Tensor, title: str = None, description: str = None):
+    def _visualize_sequence(
+        self, spatial: torch.Tensor, title: str = None, description: str = None
+    ):
         seq_len, n_channels, _, __ = spatial.size()
 
         _, ax = plt.subplots(seq_len, n_channels, figsize=(n_channels * 5, seq_len * 5))
 
         for seq_idx in range(seq_len):
             # add title to row
-            label = "S$_{t" + ("-" + str(seq_len - seq_idx - 1) if seq_idx < seq_len - 1 else "") + "}$"
+            label = (
+                "S$_{t"
+                + ("-" + str(seq_len - seq_idx - 1) if seq_idx < seq_len - 1 else "")
+                + "}$"
+            )
             ax[seq_idx][0].set_ylabel(label, rotation=0, labelpad=40, fontsize=20)
             self._visualize_step(spatial, seq_idx, ax[seq_idx])
 
         if title is not None:
             plt.suptitle(title, fontsize=20)
         if description is not None:
-            plt.figtext(0.5, 0.01, description, wrap=True, horizontalalignment='center', fontsize=16)
+            plt.figtext(
+                0.5,
+                0.01,
+                description,
+                wrap=True,
+                horizontalalignment="center",
+                fontsize=16,
+            )
         plt.show()

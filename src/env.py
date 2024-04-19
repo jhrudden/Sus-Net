@@ -19,6 +19,7 @@ TODO:
 - Should jobs and killing cause team rewards?
 """
 
+
 # TODO: move this logging file etc.
 def configure_logging(name="SUSSY_ENV", debug=False):
     logger = logging.getLogger(name)
@@ -30,12 +31,18 @@ def configure_logging(name="SUSSY_ENV", debug=False):
 
     if logger.hasHandlers():
         logger.handlers.clear()
-    
+
     logger.addHandler(handler)
 
     logger.setLevel(logging.DEBUG if debug else logging.WARNING)
-    
+
     return logger
+
+
+class AgentTypes(Enum):
+    AGENT = 0
+    CREW_MEMBER = 1
+    IMPOSTER = 2
 
 
 class StateFields(Enum):
@@ -126,7 +133,6 @@ class FourRoomEnv(Env):
             np.random.seed(random_state)
 
         self.logger = configure_logging(debug=debug)
-        
 
         self.state_fields = {
             field: idx
@@ -249,6 +255,8 @@ class FourRoomEnv(Env):
         )
         self.imposter_mask = np.zeros(self.n_agents, dtype=bool)
         self.imposter_mask[self.imposter_idxs] = True
+        self.crew_mask = ~self.imposter_mask
+        self.crew_idxs = np.where(self.crew_mask)[0]
 
         # Select agent and job positions randomly from the valid positions
 
@@ -396,14 +404,16 @@ class FourRoomEnv(Env):
             self.logger.debug("IMPOSTERS won!")
             done = True
             reward = -1 * self.game_end_reward
-        
+
         if done:
-            self.logger.debug(f"""
+            self.logger.debug(
+                f"""
 GAME OVER!
     Alive Crew: {np.argwhere(self.alive_agents & ~self.imposter_mask).flatten()}
     Alive Imposters: {np.argwhere(self.alive_agents & self.imposter_mask).flatten()}
     Completed Jobs: {list(map(tuple, self.job_positions[self.completed_jobs]))}
-            """)
+            """
+            )
 
         return done, reward
 
@@ -446,10 +456,12 @@ GAME OVER!
                 assert (
                     victim_idx not in self.imposter_idxs
                 ), "Imposter cannot be killed. Only voted out!"
-                
-                self.logger.debug(f"""
+
+                self.logger.debug(
+                    f"""
                 Agent {victim_idx} ({self.agent_positions[victim_idx]}) got killed by {agent_idx} ({self.agent_positions[agent_idx]})!!!
-                """)
+                """
+                )
 
                 # updating alive list
                 self.alive_agents[victim_idx] = 0
@@ -565,7 +577,8 @@ class FourRoomEnvWithTagging(FourRoomEnv):
                 [self.agent_action_map[agent_idx], tag_actions]
             )
 
-        self.logger.debug(f"""
+        self.logger.debug(
+            f"""
 New Game Started!
 -----------------
     Agent Positions: {list(map(tuple, self.agent_positions))}
@@ -578,7 +591,8 @@ New Game Started!
     Used Tag Actions: {self.used_tag_actions}
     Time Left for Tag Reset: {self.tag_reset_interval - self.tag_reset_timer}
 -----------------
-        """)
+        """
+        )
 
         state = (
             *state,
@@ -674,7 +688,9 @@ New Game Started!
                     -1 if agent_idx < self.n_imposters else 1
                 )  # NOTE: overriding the reward for the agent who was tagged too many times
 
-                self.logger.debug(f"""Agent {agent_idx} got voted OUT! Tag Count / Alive Agents: {tag_count} / {self.alive_agents.sum()}""")
+                self.logger.debug(
+                    f"""Agent {agent_idx} got voted OUT! Tag Count / Alive Agents: {tag_count} / {self.alive_agents.sum()}"""
+                )
 
                 # NOTE: reward / punishment for the team based on the role of kicked agent
                 # If agent is an imposter, crew members get a reward

@@ -1,3 +1,6 @@
+# directory for model checkpoints
+model_registry/
+
 .DS_Store
 
 # Byte-compiled / optimized / DLL files

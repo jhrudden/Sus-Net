@@ -12,3 +12,4 @@ dependencies:
   - ipykernel
   - pygame
   - pre-commit
+  - tqdm

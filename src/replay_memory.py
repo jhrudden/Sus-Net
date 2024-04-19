@@ -44,6 +44,9 @@ class FastReplayBuffer:
         # initializing the trajectory length tracker
         self.trajectory_lengths = torch.zeros(max_size)
 
+    def get_last_trajectory(self):
+        pass
+
     def add(
         self,
         state,
@@ -113,12 +116,14 @@ class FastReplayBuffer:
             fill_condition = (starts & neg & (i < self.trajectory_size - 1)).squeeze()
             if fill_condition.sum() > 0:
                 seq[fill_condition, i:] = (
-                    new_idx[fill_condition].unsqueeze(1).repeat(1, self.trajectory_size - i)
+                    new_idx[fill_condition]
+                    .unsqueeze(1)
+                    .repeat(1, self.trajectory_size - i)
                 )
 
             if not torch.any(neg):
                 break
-        
+
         seq = torch.flip(seq, [1])
 
         return Batch(
