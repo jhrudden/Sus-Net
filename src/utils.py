@@ -51,6 +51,12 @@ class EnhancedOrderedDict():
     
     def has(self, key: Union[str, int]) -> bool:
         return key in self.set
+    
+    def get_last(self):
+        if self.size == 0:
+            return None
+        head = (self.tail + self.size - 1) % self.max_size
+        return self.keys[head]
         
     def sample(self, n_samples: int = 1):
         cut = np.random.choice(self.size, n_samples, replace=False)

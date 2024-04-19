@@ -1,6 +1,7 @@
 import torch
 from collections import namedtuple
 from src.utils import EnhancedOrderedDict
+from typing import Union, List
 
 # Batch namedtuple, i.e. a class which contains the given attributes
 Batch = namedtuple(
@@ -99,11 +100,31 @@ class FastReplayBuffer:
         Parameters
             - batch_size (int): Number of transitions to sample
         """
+        assert self.size > 0, "Replay buffer is empty, can't sample"
 
         sample_idx = torch.tensor(
             self.trajectory_dict.sample(n_samples=batch_size), dtype=torch.int
         )
+        
+        return self._get_sequence(sample_idx)
 
+    def get_last_trajectory(self):
+        """
+        Get the last trajectory from the buffer
+        """
+        assert self.size > 0, "Replay buffer is empty, can't sample"
+        sample_idx = self.trajectory_dict.get_last()
+        return self._get_sequence(sample_idx)
+    
+    def _get_sequence(self, sample_idx: Union[int, torch.Tensor]):
+        """
+        Fetches a single or multiple sequences from the buffer
+        """
+        if isinstance(sample_idx, int):
+            sample_idx = torch.tensor([sample_idx], dtype=torch.int)
+        
+        batch_size = sample_idx.size(0)
+        
         seq = torch.ones((batch_size, self.trajectory_size), dtype=torch.int) * -1
 
         for i in range(self.trajectory_size):
@@ -152,11 +173,9 @@ class FastReplayBuffer:
             truncation = False
             start = True
             while not done and not truncation:
-                # print(step)
                 imposters = env.imposter_idxs
                 action = env.sample_actions()
                 n_s, reward, done, truncation, _ = env.step(action)
-                # print(reward)
                 next_state = env.flatten_state(n_s)
                 self.add(
                     state, action, reward, next_state, done, imposters, is_start=start

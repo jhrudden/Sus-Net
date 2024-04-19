@@ -16,3 +16,7 @@ pre-commit install
 ```
 
 3. Have fun!
+
+### Possible Experiments:
+
+1. Dummy state (that we pad when sequence length is greater than state history) all zeros vs start state repeated
