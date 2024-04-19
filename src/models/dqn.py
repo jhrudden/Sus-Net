@@ -22,6 +22,12 @@ class RandomEquiprobable(nn.Module):
 
         return outputs
 
+    def dump_to_checkpoint(model, filepath):
+        pass
+
+    def load_from_checkpoint(filepath):
+        return RandomEquiprobable()
+
 
 class ActivationType(StrEnum):
     RELU = "relu"
@@ -141,9 +147,6 @@ class SpatialDQN(nn.Module):
         self.rnn_in_dim = (
             self.cnn_ouput_dim**2 * n_channels[-1] + non_spatial_input_size
         )
-
-        print(f"cnn out dim: {self.cnn_ouput_dim}")
-        print(f"rnn in dim: {self.rnn_in_dim}")
 
         # Making RNN
         self.rnn = RNNModel(

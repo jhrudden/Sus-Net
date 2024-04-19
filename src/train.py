@@ -1,5 +1,6 @@
 from typing import List
 import os
+import math
 from scheduler import ExponentialSchedule
 from src.env import FourRoomEnv, AgentTypes, StateFields
 from src.featurizers import (
@@ -19,6 +20,8 @@ import torch.functional as F
 def run_experiment(
     env: FourRoomEnv,
     num_steps: int,
+    imposter_model_args: dict,
+    crew_model_args: dict,
     imposter_model_type: str = "spatial_dqn",
     crew_model_type: str = "spatial_dqn",
     featurizer_type: str = "perspective",
@@ -42,19 +45,7 @@ def run_experiment(
     # initializing models
     if imposter_model_type == "spatial_dqn":
 
-        imposter_model = SpatialDQN(
-            input_image_size=env.n_cols,
-            non_spatial_input_size=23,
-            n_channels=[8, 5, 3],
-            strides=[1, 1],
-            paddings=[1, 1],
-            kernel_sizes=[3, 3],
-            rnn_layers=3,
-            rnn_hidden_dim=64,
-            rnn_dropout=0.2,
-            mlp_hidden_layer_dims=[16, 16],
-            n_actions=env.n_imposter_actions,
-        )
+        imposter_model = SpatialDQN(*imposter_model_args)
     elif imposter_model_type == "random":
         imposter_model = RandomEquiprobable(env.n_imposter_actions)
     else:
@@ -66,20 +57,7 @@ def run_experiment(
         imposter_model = SpatialDQN.load_from_checkpoint(crew_pretrained_model_path)
 
     if crew_model_type == "spatial_dqn":
-
-        crew_model = SpatialDQN(
-            input_image_size=env.n_cols,
-            non_spatial_input_size=23,
-            n_channels=[8, 5, 3],
-            strides=[1, 1],
-            paddings=[1, 1],
-            kernel_sizes=[3, 3],
-            rnn_layers=3,
-            rnn_hidden_dim=64,
-            rnn_dropout=0.2,
-            mlp_hidden_layer_dims=[16, 16],
-            n_actions=env.n_crew_actions,
-        )
+        crew_model = SpatialDQN(*crew_model_args)
     elif crew_model_type == "random":
         crew_model = RandomEquiprobable(env.n_crew_actions)
     else:
@@ -187,8 +165,15 @@ def train(
 
         # Save model
         if t_total in t_saves:
-            # TODO: SAVE MODELS
-            pass
+            percent_progress = math.round(t_total / num_steps * 100)
+            imposter_model.dump_to_checkpoint(
+                os.path.join(
+                    save_directory_path, f"imposter_model_{percent_progress}%.pt"
+                )
+            )
+            crew_model.dump_to_checkpoint(
+                os.path.join(save_directory_path, f"crew_model_{percent_progress}%.pt")
+            )
 
         # Update Target DQNs
         if t_total % 10_000 == 0:
@@ -268,6 +253,7 @@ def train(
                     who_to_train=AgentTypes.CREW_MEMBER,
                 )
 
+        # checking if the env needs to be reset
         if done or trunc:
 
             pbar.set_description(
@@ -286,6 +272,14 @@ def train(
             state = next_state
             t_episode += 1
 
+    # saving final model states
+    imposter_model.dump_to_checkpoint(
+        os.path.join(save_directory_path, f"imposter_model_100%.pt")
+    )
+    crew_model.dump_to_checkpoint(
+        os.path.join(save_directory_path, f"crew_model_100%.pt")
+    )
+
 
 def train_step(
     optimizer, batch, dqn_model, dqn_target_model, gamma, featurizer, who_to_train
@@ -293,43 +287,43 @@ def train_step(
     # TODO: ensure whole batch can be featurized!!!
     featurizer.fit(batch)
 
-    dqn_model.train()
-    action_values = dqn_model(torch.tensor(batch.states))
-    actions = torch.tensor(batch.actions)
-    # print( actions.view(-1).shape)
-    values = torch.gather(action_values, 1, actions.view(-1).unsqueeze(-1)).view(-1)
+    # dqn_model.train()
+    # action_values = dqn_model(torch.tensor(batch.states))
+    # actions = torch.tensor(batch.actions)
+    # # print( actions.view(-1).shape)
+    # values = torch.gather(action_values, 1, actions.view(-1).unsqueeze(-1)).view(-1)
 
-    dqn_target_model.eval()
-    with torch.no_grad():
+    # dqn_target_model.eval()
+    # with torch.no_grad():
 
-        done_mask = torch.tensor(batch.dones).view(-1)
-        rewards = torch.tensor(batch.rewards).view(-1)
-        next_states = torch.tensor(batch.next_states)
+    #     done_mask = torch.tensor(batch.dones).view(-1)
+    #     rewards = torch.tensor(batch.rewards).view(-1)
+    #     next_states = torch.tensor(batch.next_states)
 
-        target_values = (
-            rewards + gamma * torch.max(dqn_target_model(next_states), dim=1)[0]
-        )
-        target_values[done_mask] = rewards[done_mask]
+    #     target_values = (
+    #         rewards + gamma * torch.max(dqn_target_model(next_states), dim=1)[0]
+    #     )
+    #     target_values[done_mask] = rewards[done_mask]
 
-    # DO NOT EDIT
+    # # DO NOT EDIT
 
-    assert (
-        values.shape == target_values.shape
-    ), "Shapes of values tensor and target_values tensor do not match."
+    # assert (
+    #     values.shape == target_values.shape
+    # ), "Shapes of values tensor and target_values tensor do not match."
 
-    # Testing that the values tensor requires a gradient,
-    # and the target_values tensor does not
-    assert values.requires_grad, "values tensor requires gradients"
-    assert (
-        not target_values.requires_grad
-    ), "target_values tensor should not require gradients"
+    # # Testing that the values tensor requires a gradient,
+    # # and the target_values tensor does not
+    # assert values.requires_grad, "values tensor requires gradients"
+    # assert (
+    #     not target_values.requires_grad
+    # ), "target_values tensor should not require gradients"
 
-    # Computing the scalar MSE loss between computed values and the TD-target
-    # DQN originally used Huber loss, which is less sensitive to outliers
-    loss = F.mse_loss(values, target_values)
+    # # Computing the scalar MSE loss between computed values and the TD-target
+    # # DQN originally used Huber loss, which is less sensitive to outliers
+    # loss = F.mse_loss(values, target_values)
 
-    optimizer.zero_grad()  # Reset all previous gradients
-    loss.backward()  # Compute new gradients
-    optimizer.step()  # Perform one gradient-descent step
+    # optimizer.zero_grad()  # Reset all previous gradients
+    # loss.backward()  # Compute new gradients
+    # optimizer.step()  # Perform one gradient-descent step
 
-    return loss.item()
+    # return loss.item()
