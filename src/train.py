@@ -13,6 +13,7 @@ import numpy as np
 import tqdm
 from torch import nn
 import torch
+import torch.functional as F
 
 
 def run_experiment(
@@ -178,6 +179,8 @@ def train(
 
     state, info = env.reset()  # Initialize state of first episode
 
+    G = torch.zeros(env.n_agents)
+
     # Iterate for a total of `num_steps` steps
     pbar = tqdm.trange(num_steps)
     for t_total in pbar:
@@ -189,12 +192,8 @@ def train(
 
         # Update Target DQNs
         if t_total % 10_000 == 0:
-            imposter_target_dqn = crew_target_dqn = None
-            if who_to_train in [AgentTypes.AGENT, AgentTypes.IMPOSTER]:
-                imposter_target_dqn = imposter_model.copy()
-
-            if who_to_train in [AgentTypes.AGENT, AgentTypes.CREW_MEMBER]:
-                crew_target_dqn = crew_model.copy()
+            imposter_target_dqn = imposter_model.deepcopy()
+            crew_target_dqn = crew_model.deepcopy()
 
         # featurizing trajectory
         featurizer.fit(replay_buffer.get_last_trajectory(), env.imposter_idxs)
@@ -240,20 +239,34 @@ def train(
             is_start=t_episode == 0,
         )
 
+        # Training update for imposters and/or crew
         if t_total % train_step_interval == 0:
 
-            batch = replay_buffer.sample(batch_size=batch_size)
-
-            # TODO: featurtize: WHOLE BATCH!!
-            featurizer.fit(batch.states, batch.imposters)
-
             if who_to_train in [AgentTypes.AGENT, AgentTypes.IMPOSTER]:
-                # UPDATE imposter model
-                pass
+
+                batch = replay_buffer.sample(batch_size)
+                train_step(
+                    optimizer=imposter_optimizer,
+                    batch=batch,
+                    dqn_model=imposter_model,
+                    dqn_target_model=imposter_target_dqn,
+                    gamma=gamma,
+                    featurizer=featurizer,
+                    who_to_train=AgentTypes.IMPOSTER,
+                )
 
             if who_to_train in [AgentTypes.AGENT, AgentTypes.CREW_MEMBER]:
-                # UPDATE crew model
-                pass
+
+                batch = replay_buffer.sample(batch_size)
+                train_step(
+                    optimizer=crew_optimizer,
+                    batch=batch,
+                    dqn_model=crew_model,
+                    dqn_target_model=crew_target_dqn,
+                    gamma=gamma,
+                    featurizer=featurizer,
+                    who_to_train=AgentTypes.CREW_MEMBER,
+                )
 
         if done or trunc:
 
@@ -261,21 +274,62 @@ def train(
                 f"Episode: {i_episode} | Steps: {t_episode + 1} | Return: {G:5.2f} | Epsilon: {eps:4.2f} | Loss: {losses[-1]:4.2f}"
             )
 
-            returns.append(G)
+            returns.append(G.tolist())
             game_lengths.append(t_episode)
-            G = 0
+            G = torch.zeros(env.n_agents)
             t_episode = 0
             i_episode += 1
 
             state, _ = env.reset()
-            current_trajectory = [
-                env.flatten_state(state)
-            ] * replay_buffer.trajectory_size
 
         else:
             state = next_state
             t_episode += 1
 
 
-def train_step(optimizer, batch, dqn_model, dqn_target, gamma) -> float:
-    pass
+def train_step(
+    optimizer, batch, dqn_model, dqn_target_model, gamma, featurizer, who_to_train
+):
+    # TODO: ensure whole batch can be featurized!!!
+    featurizer.fit(batch)
+
+    dqn_model.train()
+    action_values = dqn_model(torch.tensor(batch.states))
+    actions = torch.tensor(batch.actions)
+    # print( actions.view(-1).shape)
+    values = torch.gather(action_values, 1, actions.view(-1).unsqueeze(-1)).view(-1)
+
+    dqn_target_model.eval()
+    with torch.no_grad():
+
+        done_mask = torch.tensor(batch.dones).view(-1)
+        rewards = torch.tensor(batch.rewards).view(-1)
+        next_states = torch.tensor(batch.next_states)
+
+        target_values = (
+            rewards + gamma * torch.max(dqn_target_model(next_states), dim=1)[0]
+        )
+        target_values[done_mask] = rewards[done_mask]
+
+    # DO NOT EDIT
+
+    assert (
+        values.shape == target_values.shape
+    ), "Shapes of values tensor and target_values tensor do not match."
+
+    # Testing that the values tensor requires a gradient,
+    # and the target_values tensor does not
+    assert values.requires_grad, "values tensor requires gradients"
+    assert (
+        not target_values.requires_grad
+    ), "target_values tensor should not require gradients"
+
+    # Computing the scalar MSE loss between computed values and the TD-target
+    # DQN originally used Huber loss, which is less sensitive to outliers
+    loss = F.mse_loss(values, target_values)
+
+    optimizer.zero_grad()  # Reset all previous gradients
+    loss.backward()  # Compute new gradients
+    optimizer.step()  # Perform one gradient-descent step
+
+    return loss.item()
