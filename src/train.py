@@ -1,4 +1,5 @@
 from typing import List
+import os
 from scheduler import ExponentialSchedule
 from src.env import FourRoomEnv, AgentTypes, StateFields
 from src.featurizers import (
@@ -42,18 +43,13 @@ def run_experiment(
 
         imposter_model = SpatialDQN(
             input_image_size=env.n_cols,
-            non_spatial_input_size=5,
-            n_channels=[9, 9, 9],
-            strides=[1, 1, 2],
-            paddings=[
-                2,
-                2,
-                2,
-            ],
-            kernel_sizes=[2, 3, 2],
-            rnn_model="rnn",
+            non_spatial_input_size=23,
+            n_channels=[8, 5, 3],
+            strides=[1, 1],
+            paddings=[1, 1],
+            kernel_sizes=[3, 3],
             rnn_layers=3,
-            rnn_hidden_dim=224,
+            rnn_hidden_dim=64,
             rnn_dropout=0.2,
             mlp_hidden_layer_dims=[16, 16],
             n_actions=env.n_imposter_actions,
@@ -64,29 +60,24 @@ def run_experiment(
         raise ValueError(f"Invalid model type: {imposter_model_type}")
 
     # loading model checkpoint if provided
+    # NOTE: This currently over writes the model initialized above
     if imposter_pretrained_model_path is not None:
-        # TODO: load model
-        pass
+        imposter_model = SpatialDQN.load_from_checkpoint(crew_pretrained_model_path)
 
     if crew_model_type == "spatial_dqn":
 
         crew_model = SpatialDQN(
             input_image_size=env.n_cols,
-            non_spatial_input_size=5,
-            n_channels=[9, 9, 9],
-            strides=[1, 1, 2],
-            paddings=[
-                2,
-                2,
-                2,
-            ],
-            kernel_sizes=[2, 3, 2],
-            rnn_model="rnn",
+            non_spatial_input_size=23,
+            n_channels=[8, 5, 3],
+            strides=[1, 1],
+            paddings=[1, 1],
+            kernel_sizes=[3, 3],
             rnn_layers=3,
-            rnn_hidden_dim=224,
+            rnn_hidden_dim=64,
             rnn_dropout=0.2,
             mlp_hidden_layer_dims=[16, 16],
-            n_actions=env.n_imposter_actions,
+            n_actions=env.n_crew_actions,
         )
     elif crew_model_type == "random":
         crew_model = RandomEquiprobable(env.n_crew_actions)
@@ -94,21 +85,18 @@ def run_experiment(
         raise ValueError(f"Invalid model type: {imposter_model_type}")
 
     # loading model checkpoint if provided
+    # NOTE: This currently over writes the model initialized above
     if crew_pretrained_model_path is not None:
-        # TODO: load model
-        pass
+        crew_model = SpatialDQN.load_from_checkpoint(crew_pretrained_model_path)
 
-    # determining which parameters to optimize: who are we training
-    if who_to_train == AgentTypes.AGENT:
-        params_to_train = [imposter_model.parameters(), crew_model.parameters()]
-    elif who_to_train == AgentTypes.IMPOSTER:
-        params_to_train = [imposter_model.parameters()]
-    elif who_to_train == AgentTypes.CREW_MEMBER:
-        params_to_train = [crew_model.parameters()]
-
-    # initializing optimizer
+    # initializing optimizers
     if optimizer_type == "Adam":
-        optimizer = torch.optim.Adam(params=params_to_train, lr=learning_rate)
+        crew_optimizer = torch.optim.Adam(
+            params=crew_model.parameters(), lr=learning_rate
+        )
+        imposter_optimizer = torch.optim.Adam(
+            params=imposter_model.parameters(), lr=learning_rate
+        )
     else:
         raise ValueError(f"Invalid optimizer: {optimizer_type}")
 
@@ -138,7 +126,8 @@ def run_experiment(
         env=env,
         num_steps=num_steps,
         featurizer=featurizer,
-        optimizer=optimizer,
+        crew_optimizer=crew_optimizer,
+        imposter_optimizer=imposter_optimizer,
         imposter_model=imposter_model,
         crew_model=crew_model,
         save_directory_path=experiment_save_path,
@@ -161,7 +150,8 @@ def train(
     num_steps: int,
     replay_buffer: FastReplayBuffer,
     featurizer: StateSequenceFeaturizer,
-    optimizer: torch.optim.optimizer,
+    crew_optimizer: torch.optim.optimizer,
+    imposter_optimizer: torch.optim.optimizer,
     imposter_model: nn.Module,
     crew_model: nn.Module,
     scheduler: ExponentialSchedule,
@@ -187,7 +177,6 @@ def train(
     t_episode = 0  # Use this to indicate the time-step inside current episode
 
     state, info = env.reset()  # Initialize state of first episode
-    current_trajectory = [env.flatten_state(state)] * replay_buffer.trajectory_size
 
     # Iterate for a total of `num_steps` steps
     pbar = tqdm.trange(num_steps)
@@ -208,7 +197,7 @@ def train(
                 crew_target_dqn = crew_model.copy()
 
         # featurizing trajectory
-        featurizer.fit(current_trajectory, env.imposter_idxs)
+        featurizer.fit(replay_buffer.get_last_trajectory(), env.imposter_idxs)
 
         # getting next action
         eps = scheduler.value(t_total)
@@ -240,15 +229,23 @@ def train(
         # TODO: USE INFO TO STORE game details
         next_state, reward, done, trunc, info = env.step(agent_actions=agent_actions)
 
-        # updating current trajectory
-        current_trajectory.pop(0)
-        current_trajectory.append(env.flatten_state(next_state))
+        # adding the timestep to replay buffer
+        replay_buffer.add(
+            state=state,
+            action=agent_actions,
+            reward=reward,
+            next_state=next_state,
+            done=done,
+            imposters=env.imposter_idxs,
+            is_start=t_episode == 0,
+        )
 
         if t_total % train_step_interval == 0:
 
             batch = replay_buffer.sample(batch_size=batch_size)
 
-            # TODO: featurtize
+            # TODO: featurtize: WHOLE BATCH!!
+            featurizer.fit(batch.states, batch.imposters)
 
             if who_to_train in [AgentTypes.AGENT, AgentTypes.IMPOSTER]:
                 # UPDATE imposter model

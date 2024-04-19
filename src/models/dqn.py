@@ -132,19 +132,22 @@ class SpatialDQN(nn.Module):
         )
 
         # calculating the number of features out of CNN
-        self.cnn_ouput_dim = (
-            calculate_cnn_output_dim(
-                input_size=input_image_size,
-                kernel_sizes=kernel_sizes,
-                strides=strides,
-                paddings=paddings,
-            )
-            ** 2
+        self.cnn_ouput_dim = calculate_cnn_output_dim(
+            input_size=input_image_size,
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
         )
+        self.rnn_in_dim = (
+            self.cnn_ouput_dim**2 * n_channels[-1] + non_spatial_input_size
+        )
+
+        print(f"cnn out dim: {self.cnn_ouput_dim}")
+        print(f"rnn in dim: {self.rnn_in_dim}")
 
         # Making RNN
         self.rnn = RNNModel(
-            input_dim=self.cnn_ouput_dim + non_spatial_input_size,
+            input_dim=self.rnn_in_dim,
             n_layers=rnn_layers,
             hidden_dim=rnn_hidden_dim,
             dropout=rnn_dropout,
@@ -160,18 +163,23 @@ class SpatialDQN(nn.Module):
     def forward(self, spatial_x, non_spatial_x):
 
         # running through CNN
+        print(spatial_x.shape)
         batch_size, timesteps, C, H, W = spatial_x.size()
         cnn_in = spatial_x.view(batch_size * timesteps, C, H, W)
         cnn_out = self.cnn(cnn_in)
 
+        print(f"CNN out shape: {cnn_out.shape}")
+
         # Reshape the output for the RNN
         cnn_out = cnn_out.view(batch_size, timesteps, -1)
+
+        print(f"CNN out shape: {cnn_out.shape}")
         # appending non-spatial features
         rnn_in = torch.cat((cnn_out, non_spatial_x), dim=2)
+        print(f"RNN in Shape: {rnn_in.shape}")
         rnn_out, _ = self.rnn(rnn_in)
-
         # Use the last hidden state to predict with MLP
-        mlp_in = rnn_out[:, -1, :]  # NOTE: why running rnn again?
+        mlp_in = rnn_out[:, -1, :]
         out = self.prediction_head(mlp_in)
 
         return out
