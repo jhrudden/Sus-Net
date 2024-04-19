@@ -1,9 +1,11 @@
 from enum import Enum
+import json
 from typing import List, Optional, Tuple, Dict
 import numpy as np
 from gymnasium import Env, spaces
 import torch
 import logging
+from enum import StrEnum, auto
 
 """
 TODO:
@@ -18,6 +20,41 @@ TODO:
 
 - Should jobs and killing cause team rewards?
 """
+
+class SusMetrics(StrEnum):
+    IMP_KILLED_CREW = auto()
+    IMP_VOTED_OUT = auto()
+    CREW_VOTED_OUT = auto()
+    SABOTAGED_JOBS = auto()
+    COMPLETED_JOBS = auto()
+    TOTAL_STALEMATES = auto()
+    TOTAL_TIME_STEPS = auto()
+
+class MetricHandler:
+    def __init__(self):
+        self.metrics = {metric: 0 for metric in SusMetrics}
+    
+    def increment(self, event, amount=1) -> None:
+        """
+        Increment the metric by the specified amount
+
+        Args:
+        - event (Metrics): The metric to increment
+        """
+        if event in self.metrics:
+            self.metrics[event] += amount
+        else:
+            raise ValueError(f"Invalid metric: {event}")
+
+    def reset(self) -> None:
+        for key in self.metrics.keys():
+            self.metrics[key] = 0
+
+    def get_metrics(self) -> Dict[SusMetrics, int]:
+        return {metric: self.metrics[metric] for metric in SusMetrics}
+    
+    def __repr__(self):
+        return json.dumps(self.metrics, indent=4)
 
 
 # TODO: move this logging file etc.
@@ -110,6 +147,15 @@ IMPOSTER_ACTIONS = [
     Action.KILL,
 ]
 
+"""Metrics
+- Imposter Killed Crew
+- Imposter Voted Out
+- Crew Voted Out
+- Sabotaged Jobs
+- Completed Jobs
+- Total Time Steps
+"""
+
 
 class FourRoomEnv(Env):
     def __init__(
@@ -145,6 +191,8 @@ class FourRoomEnv(Env):
                 ]
             )
         }
+        self.metrics = MetricHandler()
+
         self.is_action_order_random = is_action_order_random
         self.n_imposters = n_imposters
         self.n_crew = n_crew
@@ -251,6 +299,9 @@ class FourRoomEnv(Env):
         if seed is not None:
             np.random.seed(seed)
 
+        # reset metrics
+        self.metrics.reset()
+
         # randomize imposter positions
         self.imposter_idxs = np.random.choice(
             range(self.n_agents), size=self.n_imposters, replace=False
@@ -296,7 +347,7 @@ class FourRoomEnv(Env):
                 self.completed_jobs,
                 self.alive_agents,
             ),
-            {},
+            self.metrics.get_metrics(),
         )
 
     def sample_actions(self):
@@ -339,6 +390,7 @@ class FourRoomEnv(Env):
 
         truncated = False
         done = False
+        self.metrics.increment(SusMetrics.TOTAL_TIME_STEPS, 1)
 
         # initialize the agent reward array before computing all agent rewards
         self.agent_rewards = np.ones(self.n_agents) * self.time_step_reward
@@ -370,7 +422,7 @@ class FourRoomEnv(Env):
             self.agent_rewards,
             done,
             truncated,
-            {},
+            self.metrics.get_metrics(),
         )
 
     def check_win_condition(self):
@@ -414,6 +466,8 @@ GAME OVER!
     Alive Crew: {np.argwhere(self.alive_agents & ~self.imposter_mask).flatten()}
     Alive Imposters: {np.argwhere(self.alive_agents & self.imposter_mask).flatten()}
     Completed Jobs: {list(map(tuple, self.job_positions[self.completed_jobs]))}
+Metrics:
+{str(self.metrics)}
             """
             )
 
@@ -465,6 +519,8 @@ GAME OVER!
                 """
                 )
 
+                self.metrics.increment(SusMetrics.IMP_KILLED_CREW, 1)
+
                 # updating alive list
                 self.alive_agents[victim_idx] = 0
 
@@ -477,14 +533,18 @@ GAME OVER!
             job_idx = self._get_job_at_pos(pos)
             if job_idx is not None and not self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 1
-            self.agent_rewards[agent_idx] = self.job_reward
+                self.metrics.increment(SusMetrics.COMPLETED_JOBS, 1)
+                self.agent_rewards[agent_idx] = self.job_reward
+                self.logger.debug(f"Agent {agent_idx} fixed a job at {pos}!")
 
         # agent attempts to sabotage
         elif agent_action == Action.SABOTAGE:
             job_idx = self._get_job_at_pos(pos)
             if job_idx is not None and self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 0
-            self.agent_rewards[agent_idx] = -1 * self.job_reward
+                self.metrics.increment(SusMetrics.SABOTAGED_JOBS, 1)
+                self.agent_rewards[agent_idx] = -1 * self.job_reward
+                self.logger.debug(f"Imposter {agent_idx} sabotaged a job at {pos}!")
 
     def _get_agents_at_pos(self, pos, crew_only=True) -> List[int]:
         if crew_only:
@@ -657,6 +717,8 @@ New Game Started!
             action < self.action_space.n for action in agent_actions
         ), f"Invalid action(s) {agent_actions}"
 
+        self.metrics.increment(SusMetrics.TOTAL_TIME_STEPS, 1)
+
         # kill agents who have been tagged too many times (tag count > half the number of agents)
 
         truncated = False
@@ -702,7 +764,9 @@ New Game Started!
                 # If agent is a crew member, imposters get a reward
                 if agent_idx < self.n_imposters:
                     team_reward += self.vote_reward
+                    self.metrics.increment(SusMetrics.IMP_VOTED_OUT, 1)
                 else:
+                    self.metrics.increment(SusMetrics.CREW_VOTED_OUT, 1)
                     team_reward -= self.vote_reward
 
                 reset_tag_counts = True
@@ -714,6 +778,9 @@ New Game Started!
             self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
             self.tag_reset_timer = 0
             self.logger.debug("Tag counts reset!")
+            if not reset_tag_counts:
+                self.logger.debug("Tag reset timer expired!")
+                self.metrics.increment(SusMetrics.TOTAL_STALEMATES, 1)
 
         team_win, win_team_reward = self.check_win_condition()
         team_reward += win_team_reward
@@ -735,5 +802,5 @@ New Game Started!
             self.agent_rewards,
             done,
             truncated,
-            {},
+            self.metrics.get_metrics(),
         )
