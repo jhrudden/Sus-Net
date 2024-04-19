@@ -62,14 +62,13 @@ class AmongUsVisualizer:
         """
         Render the Four Room environment based on the current state
         """
+        self.screen.fill(BACKGROUND_COLOR) # clear the screen
+        self._draw_grid()
+        self._draw_voting()
+        self._draw_jobs()
+        self._draw_agents()
         if self.game_over:
             self._draw_win_text()
-        else:
-            self.screen.fill(BACKGROUND_COLOR) # clear the screen
-            self._draw_grid()
-            self._draw_voting()
-            self._draw_jobs()
-            self._draw_agents()
         pygame.display.flip()
     
     def _draw_win_text(self):
@@ -242,8 +241,8 @@ class AmongUsVisualizer:
             raise ValueError("Cannot call step on a completed episode")
 
         state, reward, done, truncated, info = self.env.step(actions)
-        self.render()
         self.game_over = done
+        self.render()
 
         return state, reward, done, truncated, info
     
