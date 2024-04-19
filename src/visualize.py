@@ -6,7 +6,9 @@ import pygame
 import pathlib
 
 from src.featurizers import StateSequenceFeaturizer
-from src.env import FourRoomEnv
+from src.env import FourRoomEnvWithTagging
+
+ASSETS_PATH = pathlib.Path(__file__).parent.parent / 'assets'
 
 # Constants for Pygame visualization
 CELL_SIZE = 40  # Pixel size of each cell
@@ -15,23 +17,23 @@ GRID_COLOR = (200, 200, 200)  # Light grey
 WALL_COLOR = (0, 0, 0)
 CREW_COLOR = (0, 0, 255) # Blue
 IMPOSTOR_COLOR = (255, 0, 0) # Red
-FONT_SIZE = 12
+FONT_SIZE = 16
 
 COMPLETED_JOB_COLOR = (0, 255, 0, 100) # Green
 JOB_COlOR = (255, 255, 0) # Yellow
 
-asset_path = pathlib.Path(__file__).parent.parent / 'assets'
+BLOOD_SPLATTER_PATH = ASSETS_PATH / 'blood_splatter.png'
+IMPOSTER_PATH = ASSETS_PATH / 'purple.png'
+CREW_PATH = ASSETS_PATH / 'blue.png'
+GAME_PADDING = 50
 
-BLOOD_SPLATTER_PATH = asset_path / 'blood_splatter.png'
-
-class FourRoomVisualizer:
-    def __init__(self, env: FourRoomEnv):
+class AmongUsVisualizer:
+    def __init__(self, env: FourRoomEnvWithTagging):
         assert env.n_cols == env.n_rows, "Only square grids are supported"
 
         self.env = env
         self.grid_size = env.n_cols
-        self.window_size = self.grid_size * CELL_SIZE
-
+        self.window_size = self.grid_size * CELL_SIZE + GAME_PADDING * 2
         pygame.init()
         pygame.font.init()
 
@@ -41,6 +43,12 @@ class FourRoomVisualizer:
 
         blood_spatter_image = pygame.image.load(BLOOD_SPLATTER_PATH)
         self.blood_spatter_image = pygame.transform.scale(blood_spatter_image, (CELL_SIZE, CELL_SIZE))  # Scale it to fit the cell
+
+        imposter_image = pygame.image.load(IMPOSTER_PATH)
+        self.imposter_image = pygame.transform.scale(imposter_image, (CELL_SIZE, CELL_SIZE))
+
+        crew_image = pygame.image.load(CREW_PATH)
+        self.crew_image = pygame.transform.scale(crew_image, (CELL_SIZE, CELL_SIZE))
 
     
     # NOTE: __enter__ and __exit__ methods allow the class to be used as a context manager
@@ -54,11 +62,54 @@ class FourRoomVisualizer:
         """
         Render the Four Room environment based on the current state
         """
-        self.screen.fill(BACKGROUND_COLOR) # clear the screen
-        self._draw_grid()
-        self._draw_jobs()
-        self._draw_agents()
+        if self.game_over:
+            self._draw_win_text()
+        else:
+            self.screen.fill(BACKGROUND_COLOR) # clear the screen
+            self._draw_grid()
+            self._draw_voting()
+            self._draw_jobs()
+            self._draw_agents()
         pygame.display.flip()
+    
+    def _draw_win_text(self):
+        big_font = pygame.font.Font(None, 36)  # Use a larger font size, e.g., 36
+
+        _, win_reward = self.env.check_win_condition()
+        win_text = "Sussy Victory!" if win_reward < 0 else "Crewmates win!"
+        text_color = (255, 0, 0) if win_reward < 0 else (0, 255, 0)
+        win_surface = big_font.render(win_text, True, text_color)
+        win_rect = win_surface.get_rect(center=(self.window_size // 2, self.window_size // 2))
+
+        border_rect = win_rect.inflate(20, 20)  # Add padding around the text
+
+        pygame.draw.rect(self.screen, text_color, border_rect)  # Border with the same color as the text
+        pygame.draw.rect(self.screen, (0, 0, 0), border_rect.inflate(-4, -4))  # Black background inside the border
+
+        self.screen.blit(win_surface, win_rect)
+    
+    def _calculate_cell(self, x: int, y: int):
+        """
+        Calculate the cell position based on the x and y coordinates
+
+        Args:
+            x (int): X coordinate
+            y (int): Y coordinate
+        """
+
+        return x * CELL_SIZE + GAME_PADDING, y * CELL_SIZE + GAME_PADDING
+
+    def _calculate_center(self, x: int, y: int):
+        """
+        Calculate the center of the cell based on the x and y coordinates
+
+        Args:
+            x (int): X coordinate
+            y (int): Y coordinate
+        """
+
+        return x * CELL_SIZE + CELL_SIZE // 2 + GAME_PADDING, y * CELL_SIZE + CELL_SIZE // 2 + GAME_PADDING
+
     
     def _draw_grid(self):
         """
@@ -69,8 +120,51 @@ class FourRoomVisualizer:
                 is_wall = ~self.env.grid[x, y]
                 cell_color = WALL_COLOR if is_wall else GRID_COLOR
                 border = int(~is_wall)
-                rect = pygame.Rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                cell_x, cell_y = self._calculate_cell(x, y)
+                rect = pygame.Rect(cell_x, cell_y, CELL_SIZE, CELL_SIZE)
                 pygame.draw.rect(self.screen, cell_color, rect, border)
+
+    def _draw_voting(self):
+        """
+        Draw voting state
+        """
+        vote_counts = self.env.tag_counts.flatten()
+        vote_counts[self.env.alive_agents == 0] = -1
+        voted = self.env.used_tag_actions.flatten() + 0
+        voted[self.env.alive_agents == 0] = -1
+
+        time_left_to_vote = self.env.tag_reset_interval - self.env.tag_reset_timer
+        
+        screen_width, screen_height = self.screen.get_size()
+        votes_text = "Votes: " + " ".join(map(str, vote_counts))
+        voted_text = "Voted: " + " ".join(map(str, voted))
+        time_text = f"Vote counts reset in: {time_left_to_vote}"
+
+        votes_surface = self.font.render(votes_text, True, (255, 255, 255))
+        voted_surface = self.font.render(voted_text, True, (255, 255, 255))
+
+        time_vote_surface = self.font.render(time_text, True, (255, 255, 255))
+        
+        text_width, text_height = votes_surface.get_size()
+
+        time_text_width, time_text_height = time_vote_surface.get_size()
+
+        bar_x = screen_width - text_width - 10
+        bar_y = 10
+
+        bar_left = 10
+
+        pygame.draw.rect(self.screen, (0, 0, 0), (bar_x - 5, bar_y - 5, text_width + 10, text_height*2 + 10))
+        pygame.draw.rect(self.screen, (255, 255, 255), (bar_x - 5, bar_y - 5, text_width + 10, text_height*2 + 10), 1)
+
+        pygame.draw.rect(self.screen, (0, 0, 0), (bar_left - 5, bar_y - 5, time_text_width + 10, time_text_height + 10))
+        pygame.draw.rect(self.screen, (255, 255, 255), (bar_left - 5, bar_y - 5, time_text_width + 10, time_text_height + 10), 1)
+
+        # Blit the text onto the screen
+        self.screen.blit(votes_surface, (bar_x, bar_y))
+        self.screen.blit(voted_surface, (bar_x, bar_y + text_height))
+        self.screen.blit(time_vote_surface, (bar_left, bar_y))
+
     
     def _draw_agents(self):
         """
@@ -103,15 +197,15 @@ class FourRoomVisualizer:
             y (int): Y position of the agent
         """
         is_imposter = self.env.imposter_mask[agent_idx]
-        agent_color = IMPOSTOR_COLOR if is_imposter else CREW_COLOR
 
-        center_x = x * CELL_SIZE + CELL_SIZE // 2
-        center_y = y * CELL_SIZE + CELL_SIZE // 2
+        center_x, center_y = self._calculate_center(x, y)
+        cell_x, cell_y = self._calculate_cell(x, y)
 
         if not is_dead:
-            pygame.draw.circle(self.screen, agent_color, (center_x, center_y), CELL_SIZE // 4)
+            image = self.imposter_image if is_imposter else self.crew_image
+            self.screen.blit(image, (cell_x, cell_y))
         else:
-            self.screen.blit(self.blood_spatter_image, (x * CELL_SIZE, y * CELL_SIZE))
+            self.screen.blit(self.blood_spatter_image, (cell_x, cell_y))
 
         text_surface = self.font.render(f"{agent_idx}", True, (255, 255, 255))
         text_rect = text_surface.get_rect(center=(center_x, center_y))
@@ -127,8 +221,7 @@ class FourRoomVisualizer:
             is_completed = self.env.completed_jobs[job_idx]
 
             # Draw jobs as triangles with black border
-            center_x = x * CELL_SIZE + CELL_SIZE // 2
-            center_y = y * CELL_SIZE + CELL_SIZE // 2
+            center_x, center_y = self._calculate_center(x, y)
 
             job_color = COMPLETED_JOB_COLOR if is_completed else JOB_COlOR
 
@@ -145,9 +238,14 @@ class FourRoomVisualizer:
         Returns:
             dict: Dictionary containing the results from gym.Env.step method
         """
-        reaction = self.env.step(actions)
+        if self.game_over:
+            raise ValueError("Cannot call step on a completed episode")
+
+        state, reward, done, truncated, info = self.env.step(actions)
         self.render()
-        return reaction
+        self.game_over = done
+
+        return state, reward, done, truncated, info
     
     def reset(self) -> Dict:
         """
@@ -157,6 +255,7 @@ class FourRoomVisualizer:
             dict: Dictionary containing the results from gym.Env.reset method
         """
         initial = self.env.reset()
+        self.game_over = False
         self.render()
         return initial
     

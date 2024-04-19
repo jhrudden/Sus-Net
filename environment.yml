@@ -11,3 +11,4 @@ dependencies:
   - torchvision
   - ipykernel
   - pygame
+  - pre-commit

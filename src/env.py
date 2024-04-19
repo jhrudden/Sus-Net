@@ -520,8 +520,8 @@ class FourRoomEnvWithTagging(FourRoomEnv):
                 ]
             )
         }
-        self.tag_counts = np.zeros(self.n_agents)
-        self.used_tag_actions = np.zeros(self.n_agents)
+        self.tag_counts = np.zeros(self.n_agents, dtype=int)
+        self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
         self.tag_reset_timer = 0
         self.tag_reset_interval = tag_reset_interval
         self.vote_reward = vote_reward
@@ -552,8 +552,8 @@ class FourRoomEnvWithTagging(FourRoomEnv):
 
     def reset(self, seed: Optional[int] = None, **kwargs) -> Tuple[Tuple, Dict]:
         state, _ = super().reset(seed, **kwargs)
-        self.tag_counts = np.zeros(self.n_agents)
-        self.used_tag_actions = np.zeros(self.n_agents)
+        self.tag_counts = np.zeros(self.n_agents, dtype=int)
+        self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
         self.tag_reset_timer = 0
 
         # updating agent_action_map to include tagging actions
@@ -689,8 +689,8 @@ New Game Started!
         self.tag_reset_timer += 1
 
         if reset_tag_counts or self.tag_reset_timer >= self.tag_reset_interval:
-            self.tag_counts = np.zeros(self.n_agents)
-            self.used_tag_actions = np.zeros(self.n_agents)
+            self.tag_counts = np.zeros(self.n_agents, dtype=int)
+            self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
             self.tag_reset_timer = 0
             self.logger.debug("Tag counts reset!")
 
