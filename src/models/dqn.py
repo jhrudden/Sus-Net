@@ -70,15 +70,13 @@ class CNNModel(nn.Module):
 class RNNModel(nn.Module):
     def __init__(
         self,
-        model_class: nn.Module,
         input_dim: int,
         n_layers: int,
         hidden_dim: int,
         dropout: float,
     ):
         super(RNNModel, self).__init__()
-        assert isinstance(model_class, (nn.RNN, nn.GRU))
-        self.model = model_class(
+        self.model = nn.RNN(
             input_size=input_dim,
             hidden_size=hidden_dim,
             num_layers=n_layers,
@@ -103,7 +101,6 @@ class SpatialDQN(nn.Module):
         paddings: List[int],
         kernel_sizes: List[int],
         # RNN arguments
-        rnn_model: nn.Module,
         rnn_layers: int,
         rnn_hidden_dim: int,
         rnn_dropout: float,
@@ -112,6 +109,20 @@ class SpatialDQN(nn.Module):
         n_actions: int,
     ):
         super(SpatialDQN, self).__init__()
+
+        self.config = {
+            "input_image_size": input_image_size,
+            "non_spatial_input_size": non_spatial_input_size,
+            "n_channels": n_channels,
+            "strides": strides,
+            "paddings": paddings,
+            "kernel_sizes": kernel_sizes,
+            "rnn_layers": rnn_layers,
+            "rnn_hidden_dim": rnn_hidden_dim,
+            "rnn_dropout": rnn_dropout,
+            "mlp_hidden_layer_dims": mlp_hidden_layer_dims,
+            "n_actions": n_actions,
+        }
 
         self.cnn = CNNModel(
             n_channels=n_channels,
@@ -132,10 +143,7 @@ class SpatialDQN(nn.Module):
         )
 
         # Making RNN
-        self.rnn_model = rnn_model
-
         self.rnn = RNNModel(
-            model_class=rnn_model,
             input_dim=self.cnn_ouput_dim + non_spatial_input_size,
             n_layers=rnn_layers,
             hidden_dim=rnn_hidden_dim,
@@ -167,6 +175,19 @@ class SpatialDQN(nn.Module):
         out = self.prediction_head(mlp_in)
 
         return out
+
+    def dump_to_checkpoint(model, filepath):
+        checkpoint = {"state_dict": model.state_dict(), "config": model.config}
+        torch.save(checkpoint, filepath)
+        print(f"Model checkpoint saved to {filepath}")
+
+    def load_from_checkpoint(filepath):
+        checkpoint = torch.load(filepath)
+        config = checkpoint["config"]
+        model = SpatialDQN(**config)
+        model.load_state_dict(checkpoint["state_dict"])
+        print("Model loaded from checkpoint")
+        return model
 
 
 def make_mlp(layer_dims, activation_fn: ActivationType = ActivationType.RELU):
