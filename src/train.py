@@ -1,9 +1,8 @@
 from collections import defaultdict
-from typing import List
 import os
 import math
-from scheduler import ExponentialSchedule
-from src.env import FourRoomEnv, AgentTypes, StateFields
+from src.scheduler import ExponentialSchedule
+from src.env import FourRoomEnv, StateFields
 from src.featurizers import (
     PerspectiveFeaturizer,
     StateSequenceFeaturizer,
@@ -16,8 +15,9 @@ import tqdm
 from torch import nn
 import torch
 import torch.functional as F
+import copy
 
-from utils import add_info_to_episode_dict
+from src.utils import add_info_to_episode_dict
 
 
 class DQNTeamTrainer:
@@ -28,7 +28,7 @@ class DQNTeamTrainer:
         self.gamma = gamma
 
         # wether or not this trainer is just a place holder!
-        self.train = imposter_optimizer is not None and crew_optimizer is not None
+        self.train = imposter_optimizer is not None or crew_optimizer is not None
 
     def train_step(
         self,
@@ -54,10 +54,11 @@ class DQNTeamTrainer:
 
         for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generator()):
 
+            print(spatial.shape)
+            print(non_spatial.shape)
+
             # samples in which agnets is an imposter/crew member
-            imposter_samples = torch.any(
-                torch.where(batch.imposters == agent_idx), dim=1
-            )
+            imposter_samples = (batch.imposters == agent_idx).view(-1)
             crew_samples = ~imposter_samples
 
             # training via gradient accumulation
@@ -74,6 +75,10 @@ class DQNTeamTrainer:
             ):
                 if opt is not None:
                     team_dqn.train()
+
+                    print(spatial.shape)
+                    print(non_spatial.shape)
+
                     action_values = team_dqn(
                         spatial[team_samples], non_spatial[team_samples]
                     )
@@ -102,7 +107,7 @@ class DQNTeamTrainer:
         for opt in [self.imposter_optimizer, self.crew_optimizer]:
             if opt is not None:
                 opt.step()
-
+        print(accumulated_losses)
         return accumulated_losses
 
 
@@ -135,7 +140,7 @@ def run_experiment(
     # initializing models
     if imposter_dqn_type == "spatial_dqn":
 
-        imposter_dqn = SpatialDQN(*imposter_dqn_args)
+        imposter_dqn = SpatialDQN(**imposter_dqn_args)
     elif imposter_dqn_type == "random":
         imposter_dqn = RandomEquiprobable(env.n_imposter_actions)
     else:
@@ -147,7 +152,7 @@ def run_experiment(
         imposter_dqn = SpatialDQN.load_from_checkpoint(crew_pretrained_model_path)
 
     if crew_dqn_type == "spatial_dqn":
-        crew_dqn = SpatialDQN(*crew_dqn_args)
+        crew_dqn = SpatialDQN(**crew_dqn_args)
     elif crew_dqn_type == "random":
         crew_dqn = RandomEquiprobable(env.n_crew_actions)
     else:
@@ -159,7 +164,7 @@ def run_experiment(
         crew_dqn = SpatialDQN.load_from_checkpoint(crew_pretrained_model_path)
 
     # initializing optimizers
-    crew_optimizer = imposter_optimizer = False
+    crew_optimizer = imposter_optimizer = None
     if optimizer_type == "Adam":
         if train_imposter:
             imposter_optimizer = torch.optim.Adam(
@@ -197,9 +202,9 @@ def run_experiment(
 
     # initialize featurizer
     if featurizer_type == "perspective":
-        featurizer = PerspectiveFeaturizer(env=env, sequence_len=sequence_length)
+        featurizer = PerspectiveFeaturizer(env=env)
     elif featurizer_type == "global":
-        featurizer = GlobalFeaturizer(env=env, sequence_len=sequence_length)
+        featurizer = GlobalFeaturizer(env=env)
     else:
         raise ValueError(f"Invalid featurizer: {featurizer_type}")
 
@@ -207,9 +212,8 @@ def run_experiment(
     train(
         env=env,
         num_steps=num_steps,
+        replay_buffer=replay_buffer,
         featurizer=featurizer,
-        crew_optimizer=crew_optimizer,
-        imposter_optimizer=imposter_optimizer,
         imposter_dqn=imposter_dqn,
         crew_dqn=crew_dqn,
         save_directory_path=experiment_save_path,
@@ -278,15 +282,15 @@ def train(
 
         # Update Target DQNs
         if t_total % 10_000 == 0:
-            imposter_target_dqn = imposter_dqn.deepcopy()
-            crew_target_dqn = crew_dqn.deepcopy()
+            imposter_target_dqn = copy.deepcopy(imposter_dqn)
+            crew_target_dqn = copy.deepcopy(crew_dqn)
 
-        # featurizing trajectory
-        featurizer.fit(replay_buffer.get_last_trajectory(), env.imposter_idxs)
+        # featurizing current trajectory
+        featurizer.fit(replay_buffer.get_last_trajectory().states)
 
         # getting next action
         eps = scheduler.value(t_total)
-        agent_actions = np.zeros(env.n_agents)
+        agent_actions = np.zeros(env.n_agents, dtype=np.int32)
         alive_agents = state[env.state_fields[StateFields.ALIVE_AGENTS]]
 
         for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generator()):
@@ -322,7 +326,7 @@ def train(
             state=env.flatten_state(state),
             action=agent_actions,
             reward=reward,
-            next_state=next_state,
+            next_state=env.flatten_state(next_state),
             done=done,
             imposters=env.imposter_idxs,
             is_start=t_episode == 0,
@@ -347,7 +351,7 @@ def train(
         if done or trunc:
 
             pbar.set_description(
-                f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Loss: {losses[-1]:4.2f}"
+                f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Loss: {00}"
             )
 
             returns.append(G.tolist())

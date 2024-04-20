@@ -21,6 +21,7 @@ TODO:
 - Should jobs and killing cause team rewards?
 """
 
+
 class SusMetrics(StrEnum):
     IMP_KILLED_CREW = auto()
     IMP_VOTED_OUT = auto()
@@ -44,10 +45,11 @@ class SusMetrics(StrEnum):
             SusMetrics.TOTAL_TIME_STEPS,
         ]
 
+
 class MetricHandler:
     def __init__(self):
         self.metrics = {metric: 0 for metric in SusMetrics}
-    
+
     def increment(self, event, amount=1) -> None:
         """
         Increment the metric by the specified amount
@@ -59,7 +61,7 @@ class MetricHandler:
             self.metrics[event] += amount
         else:
             raise ValueError(f"Invalid metric: {event}")
-        
+
     def update(self, event: SusMetrics, value: Any) -> None:
         if event not in SusMetrics:
             raise ValueError(f"Invalid metric: {event}")
@@ -71,7 +73,7 @@ class MetricHandler:
 
     def get_metrics(self) -> Dict[SusMetrics, int]:
         return {metric: self.metrics[metric] for metric in SusMetrics}
-    
+
     def __repr__(self):
         return json.dumps(self.metrics, indent=4)
 
@@ -165,6 +167,7 @@ IMPOSTER_ACTIONS = [
     Action.SABOTAGE,
     Action.KILL,
 ]
+
 
 class FourRoomEnv(Env):
     def __init__(
@@ -767,7 +770,9 @@ New Game Started!
             quorum = (self.alive_agents.sum() + 1) // 2
 
             if highest_vote >= quorum:
-                self.alive_agents[highest_vote_idx] = 0 # kick out the agent with the highest vote
+                self.alive_agents[highest_vote_idx] = (
+                    0  # kick out the agent with the highest vote
+                )
                 is_imposter = self.imposter_mask[highest_vote_idx]
                 # Reward Crew if Imposter is voted out, else reward Imposters (team reward penalizes the team that lost a member)
                 team_reward += self.vote_reward * (-1 if is_imposter else 1)

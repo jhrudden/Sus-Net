@@ -105,7 +105,7 @@ class FastReplayBuffer:
         sample_idx = torch.tensor(
             self.trajectory_dict.sample(n_samples=batch_size), dtype=torch.int
         )
-        
+
         return self._get_sequence(sample_idx)
 
     def get_last_trajectory(self):
@@ -115,16 +115,16 @@ class FastReplayBuffer:
         assert self.size > 0, "Replay buffer is empty, can't sample"
         sample_idx = self.trajectory_dict.get_last()
         return self._get_sequence(sample_idx)
-    
+
     def _get_sequence(self, sample_idx: Union[int, torch.Tensor]):
         """
         Fetches a single or multiple sequences from the buffer
         """
         if isinstance(sample_idx, int):
             sample_idx = torch.tensor([sample_idx], dtype=torch.int)
-        
+
         batch_size = sample_idx.size(0)
-        
+
         seq = torch.ones((batch_size, self.trajectory_size), dtype=torch.int) * -1
 
         for i in range(self.trajectory_size):
@@ -136,23 +136,23 @@ class FastReplayBuffer:
 
             fill_condition = (starts & neg & (i < self.trajectory_size - 1)).squeeze()
             if fill_condition.sum() > 0:
-                seq[fill_condition, i:] = (
-                    new_idx[fill_condition]
-                    .unsqueeze(1)
-                    .repeat(1, self.trajectory_size - i)
+                seq[fill_condition, i:] = new_idx[fill_condition].repeat(
+                    1, self.trajectory_size - i
                 )
 
             if not torch.any(neg):
                 break
 
         seq = torch.flip(seq, [1])
-        
+
         return Batch(
             states=self.states[seq],
             actions=self.actions[seq],
             rewards=self.rewards[seq],
             next_states=self.next_states[seq],
-            imposters=self.imposters[seq[:, 0]], # imposters don't change over the trajectory
+            imposters=self.imposters[
+                seq[:, 0]
+            ],  # imposters don't change over the trajectory
             dones=self.dones[seq],
         )
 

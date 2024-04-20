@@ -57,7 +57,8 @@ class StateSequenceFeaturizer(ABC):
             Tuple[torch.Tensor, torch.Tensor]: Tuple of spatial and non-spatial features.
         """
         raise NotImplementedError("Need to implement generator method.")
-        
+
+
 class PerspectiveFeaturizer(StateSequenceFeaturizer):
     """
     Featurizer that takes a sequence of states and imposter locations and featurizes them from each agent's perspective.
@@ -88,7 +89,9 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         )
 
     def fit(self, state_sequence: torch.Tensor) -> None:
-        assert state_sequence.dim() == 3, f"Expected 3D tensor. Got: {state_sequence.dim()}"
+        assert (
+            state_sequence.dim() == 3
+        ), f"Expected 3D tensor. Got: {state_sequence.dim()}"
 
         self.B, self.T, S = state_sequence.size()
 
@@ -106,14 +109,20 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
                 self.global_non_spatial = global_non_spatial
             else:
                 self.spatial = torch.stack([self.spatial, spatial])
-                self.agent_non_spatial = torch.stack([self.agent_non_spatial, agent_non_spatial])
-                self.global_non_spatial = torch.stack([self.global_non_spatial, global_non_spatial])
-        
+                self.agent_non_spatial = torch.stack(
+                    [self.agent_non_spatial, agent_non_spatial]
+                )
+                self.global_non_spatial = torch.stack(
+                    [self.global_non_spatial, global_non_spatial]
+                )
+
         self.agent_non_spatial = self.agent_non_spatial.transpose(0, 1)
         self.spatial = self.spatial.transpose(0, 1)
         self.global_non_spatial = self.global_non_spatial.transpose(0, 1)
 
-    def _featurize_state(self, states: List[Tuple]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _featurize_state(
+        self, states: List[Tuple]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         spatial_features = torch.stack(
             [self.sp_f.extract_features(state) for state in states]
         )
@@ -186,9 +195,11 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
         )
 
     def fit(self, state_sequence: torch.Tensor) -> None:
-        assert state_sequence.dim() == 3, f"Expected 3D tensor. Got: {state_sequence.dim()}"
+        assert (
+            state_sequence.dim() == 3
+        ), f"Expected 3D tensor. Got: {state_sequence.dim()}"
 
-        self.B, self.T, S  = state_sequence.size()
+        self.B, self.T, S = state_sequence.size()
 
         for seq_idx in range(self.T):
             batch_states = [
@@ -202,7 +213,7 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
             else:
                 self.spatial = torch.stack([self.spatial, spatial])
                 self.non_spatial = torch.stack([self.non_spatial, non_spatial])
-        
+
         self.non_spatial = self.non_spatial.transpose(0, 1)
         self.spatial = self.spatial.transpose(0, 1)
 
