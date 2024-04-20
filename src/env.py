@@ -1,6 +1,6 @@
 from enum import Enum
 import json
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 from gymnasium import Env, spaces
 import torch
@@ -29,6 +29,20 @@ class SusMetrics(StrEnum):
     COMPLETED_JOBS = auto()
     TOTAL_STALEMATES = auto()
     TOTAL_TIME_STEPS = auto()
+    IMPOSTER_WON = auto()
+    CREW_WON = auto()
+
+    @classmethod
+    def can_increment(cls, metric: str):
+        return metric in [
+            SusMetrics.IMP_KILLED_CREW,
+            SusMetrics.IMP_VOTED_OUT,
+            SusMetrics.CREW_VOTED_OUT,
+            SusMetrics.SABOTAGED_JOBS,
+            SusMetrics.COMPLETED_JOBS,
+            SusMetrics.TOTAL_STALEMATES,
+            SusMetrics.TOTAL_TIME_STEPS,
+        ]
 
 class MetricHandler:
     def __init__(self):
@@ -41,10 +55,15 @@ class MetricHandler:
         Args:
         - event (Metrics): The metric to increment
         """
-        if event in self.metrics:
+        if SusMetrics.can_increment(event):
             self.metrics[event] += amount
         else:
             raise ValueError(f"Invalid metric: {event}")
+        
+    def update(self, event: SusMetrics, value: Any) -> None:
+        if event not in SusMetrics:
+            raise ValueError(f"Invalid metric: {event}")
+        self.metrics[event] = value
 
     def reset(self) -> None:
         for key in self.metrics.keys():
@@ -146,16 +165,6 @@ IMPOSTER_ACTIONS = [
     Action.SABOTAGE,
     Action.KILL,
 ]
-
-"""Metrics
-- Imposter Killed Crew
-- Imposter Voted Out
-- Crew Voted Out
-- Sabotaged Jobs
-- Completed Jobs
-- Total Time Steps
-"""
-
 
 class FourRoomEnv(Env):
     def __init__(
@@ -446,6 +455,7 @@ class FourRoomEnv(Env):
         reward = 0
         if np.sum(self.alive_agents[self.imposter_mask]) == 0:
             self.logger.debug("CREW won!")
+            self.metrics.update(SusMetrics.CREW_WON, 1)
             done = True
             reward = self.game_end_reward
 
@@ -456,6 +466,7 @@ class FourRoomEnv(Env):
             <= self.alive_agents[self.imposter_mask].sum()  # imposters
         ):
             self.logger.debug("IMPOSTERS won!")
+            self.metrics.update(SusMetrics.IMPOSTER_WON, 1)
             done = True
             reward = -1 * self.game_end_reward
 
@@ -745,42 +756,32 @@ New Game Started!
             else:
                 self._agent_step(agent_idx=agent_idx, agent_action=agent_action)
 
-        self.tag_counts *= self.alive_agents
-
-        # Check if any agent has been tagged too many times
-        for agent_idx, tag_count in enumerate(self.tag_counts):
-            if tag_count >= (self.alive_agents.sum() + 1) // 2:
-                self.alive_agents[agent_idx] = 0
-                self.agent_rewards[agent_idx] = self.kill_reward * (
-                    -1 if agent_idx < self.n_imposters else 1
-                )  # NOTE: overriding the reward for the agent who was tagged too many times
-
-                self.logger.debug(
-                    f"""Agent {agent_idx} got voted OUT! Tag Count / Alive Agents: {tag_count} / {self.alive_agents.sum()}"""
-                )
-
-                # NOTE: reward / punishment for the team based on the role of kicked agent
-                # If agent is an imposter, crew members get a reward
-                # If agent is a crew member, imposters get a reward
-                if agent_idx < self.n_imposters:
-                    team_reward += self.vote_reward
-                    self.metrics.increment(SusMetrics.IMP_VOTED_OUT, 1)
-                else:
-                    self.metrics.increment(SusMetrics.CREW_VOTED_OUT, 1)
-                    team_reward -= self.vote_reward
-
-                reset_tag_counts = True
+        self.tag_counts *= self.alive_agents  # reset tag counts for dead agents
 
         self.tag_reset_timer += 1
 
-        if reset_tag_counts or self.tag_reset_timer >= self.tag_reset_interval:
-            self.tag_counts = np.zeros(self.n_agents, dtype=int)
-            self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
-            self.tag_reset_timer = 0
-            self.logger.debug("Tag counts reset!")
-            if not reset_tag_counts:
-                self.logger.debug("Tag reset timer expired!")
-                self.metrics.increment(SusMetrics.TOTAL_STALEMATES, 1)
+        if self.tag_reset_timer >= self.tag_reset_interval:
+            highest_vote_idx = np.argmax(self.tag_counts)
+            highest_vote = self.tag_counts[highest_vote_idx]
+
+            quorum = (self.alive_agents.sum() + 1) // 2
+
+            if highest_vote >= quorum:
+                self.alive_agents[highest_vote_idx] = 0 # kick out the agent with the highest vote
+                is_imposter = self.imposter_mask[highest_vote_idx]
+                # Reward Crew if Imposter is voted out, else reward Imposters (team reward penalizes the team that lost a member)
+                team_reward += self.vote_reward * (-1 if is_imposter else 1)
+
+                if is_imposter:
+                    self.metrics.increment(SusMetrics.IMP_VOTED_OUT, 1)
+                else:
+                    self.metrics.increment(SusMetrics.CREW_VOTED_OUT, 1)
+
+                self.logger.debug(
+                    f"""Agent {highest_vote_idx} got voted OUT! Tag Count / Alive Agents: {highest_vote} / {self.alive_agents.sum()}"""
+                )
+
+            self._reset_tagging_state()
 
         team_win, win_team_reward = self.check_win_condition()
         team_reward += win_team_reward
@@ -804,3 +805,9 @@ New Game Started!
             truncated,
             self.metrics.get_metrics(),
         )
+
+    def _reset_tagging_state(self):
+        self.tag_counts = np.zeros(self.n_agents, dtype=int)
+        self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
+        self.tag_reset_timer = 0
+        self.logger.debug("Tagging state reset!")
