@@ -34,10 +34,9 @@ class StateSequenceFeaturizer(ABC):
         sequence_len (int): The length of the sequence.
     """
 
-    def __init__(self, env: FourRoomEnv, sequence_len: int):
+    def __init__(self, env: FourRoomEnv):
         self.env = env
         self.state_size = env.flattened_state_size
-        self.sequence_len = sequence_len
 
     @abstractmethod
     def fit(self, state_sequence: torch.Tensor) -> None:
@@ -58,8 +57,7 @@ class StateSequenceFeaturizer(ABC):
             Tuple[torch.Tensor, torch.Tensor]: Tuple of spatial and non-spatial features.
         """
         raise NotImplementedError("Need to implement generator method.")
-
-
+        
 class PerspectiveFeaturizer(StateSequenceFeaturizer):
     """
     Featurizer that takes a sequence of states and imposter locations and featurizes them from each agent's perspective.
@@ -71,8 +69,8 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
     - Non-spatial are also ordered based on the agent in question.
     """
 
-    def __init__(self, env: FourRoomEnv, sequence_len: int):
-        super().__init__(env, sequence_len)
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
 
         self.sp_f = CombineFeaturizer(
             featurizers=[AgentPositionsFeaturizer(env=env), JobFeaturizer(env=env)]
@@ -89,29 +87,42 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
             ]
         )
 
-    def fit(self, state_sequence: Tuple):
-        assert (
-            len(state_sequence) == self.sequence_len
-        ), f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
-        self.states = [
-            self.env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
-        ]
-        self.sequence_len = len(self.states)
+    def fit(self, state_sequence: torch.Tensor) -> None:
+        assert state_sequence.dim() == 3, f"Expected 3D tensor. Got: {state_sequence.dim()}"
 
-        self.spatial, self.agent_non_spatial, self.global_non_spatial = (
-            self._featurize_state()
-        )
+        self.B, self.T, S = state_sequence.size()
 
-    def _featurize_state(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        for seq_idx in range(self.T):
+            batch_states = [
+                self.env.unflatten_state(s) for s in state_sequence[:, seq_idx, :]
+            ]
+            spatial, agent_non_spatial, global_non_spatial = self._featurize_state(
+                batch_states
+            )
+
+            if seq_idx == 0:
+                self.spatial = spatial
+                self.agent_non_spatial = agent_non_spatial
+                self.global_non_spatial = global_non_spatial
+            else:
+                self.spatial = torch.stack([self.spatial, spatial])
+                self.agent_non_spatial = torch.stack([self.agent_non_spatial, agent_non_spatial])
+                self.global_non_spatial = torch.stack([self.global_non_spatial, global_non_spatial])
+        
+        self.agent_non_spatial = self.agent_non_spatial.transpose(0, 1)
+        self.spatial = self.spatial.transpose(0, 1)
+        self.global_non_spatial = self.global_non_spatial.transpose(0, 1)
+
+    def _featurize_state(self, states: List[Tuple]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         spatial_features = torch.stack(
-            [self.sp_f.extract_features(state) for state in self.states]
+            [self.sp_f.extract_features(state) for state in states]
         )
         agent_non_spatial_features = torch.stack(
-            [self.agent_non_sp_f.extract_features(state) for state in self.states]
-        ).view(self.sequence_len, -1, self.env.n_agents)
+            [self.agent_non_sp_f.extract_features(state) for state in states]
+        ).view(self.B, -1, self.env.n_agents)
 
         global_non_spatial_features = torch.stack(
-            [self.global_non_sp_f.extract_features(state) for state in self.states]
+            [self.global_non_sp_f.extract_features(state) for state in states]
         )
 
         return spatial_features, agent_non_spatial_features, global_non_spatial_features
@@ -121,28 +132,31 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         agent_non_spatial_rep = self.agent_non_spatial.detach().clone()
         global_non_spatial_rep = self.global_non_spatial.detach().clone()
 
-        n_channels = torch.arange(spatial_rep.shape[1])
-        agent_non_spatial_dim = torch.arange(agent_non_spatial_rep.shape[2])
+        C = spatial_rep.size(2)  # number of channels size (B, T, C, H, W)
+
+        agents = torch.arange(self.env.n_agents)
+
+        channel_order = torch.arange(C)
 
         for agent_idx in range(self.env.n_agents):
-            n_channels[0] = agent_idx
-            agent_non_spatial_dim[0] = agent_idx
+            channel_order[0] = agent_idx
+            agents[0] = agent_idx
             if agent_idx > 0:
-                n_channels[agent_idx] = agent_idx - 1
-                agent_non_spatial_dim[agent_idx] = agent_idx - 1
+                channel_order[agent_idx] = agent_idx - 1
+                agents[agent_idx] = agent_idx - 1
 
             non_spatial = torch.cat(
                 [
-                    agent_non_spatial_rep[:, :, agent_non_spatial_dim]
+                    agent_non_spatial_rep[:, :, :, agents]
                     .detach()
                     .clone()
-                    .view(self.sequence_len, -1),
+                    .view(self.B, self.T, -1),
                     global_non_spatial_rep,
                 ],
-                dim=1,
+                dim=2,
             )
 
-            yield (spatial_rep[:, n_channels, :, :].detach().clone(), non_spatial)
+            yield (spatial_rep[:, :, channel_order, :, :].detach().clone(), non_spatial)
 
 
 class GlobalFeaturizer(StateSequenceFeaturizer):
@@ -153,8 +167,8 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
     GlobalFeaturizer does not shift ordering of channels based on the agent in question. Instead we just simply append one-hot encoding of the agent index to the non-spatial features.
     """
 
-    def __init__(self, env: FourRoomEnv, sequence_len: int):
-        super().__init__(env, sequence_len)
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
 
         self.spatial_features = CombineFeaturizer(
             featurizers=[
@@ -172,7 +186,7 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
         )
 
     def fit(self, state_sequence: torch.Tensor) -> None:
-        assert state_sequence.dim() == 3, f"Expected 4D tensor. Got: {state_sequence.dim()}"
+        assert state_sequence.dim() == 3, f"Expected 3D tensor. Got: {state_sequence.dim()}"
 
         self.B, self.T, S  = state_sequence.size()
 

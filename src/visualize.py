@@ -313,14 +313,16 @@ class StateSequenceVisualizer:
             imposters_locations = set(imposters[b].tolist())
             self._visualize_sequence(spatial, imposters_locations, title=f"Global State, Batch {b}")
 
-    def visualize_perspectives(self):
-        assert self.featurizer.batch_size == 1, "Visualizing perspectives only works for batch size 1"
-        for agent_idx, (spatial, non_spatial) in enumerate(self.featurizer.generator()):
-            self._visualize_sequence(
-                spatial.squeeze(0), # remove batch dimension
-                title=f"Agent {agent_idx}'s Perspective",
-                description=f"Non-Spatial: \n{str(non_spatial.squeeze(0))}",
-            )
+    def visualize_perspectives(self, imposters: torch.Tensor):
+        for agent_id, (batched_spatial, batch_non_spatial) in enumerate(self.featurizer.generator()):
+            B, *_ = batched_spatial.size()
+            for b in range(B):
+                self._visualize_sequence(
+                    batched_spatial[b], # remove batch dimension
+                    title=f"Agent {agent_id}'s Perspective",
+                    description=f"Non-Spatial: \n{str(batch_non_spatial[b])}",
+                    imposters=set(imposters[b].tolist()),
+                )
 
     def _visualize_step(self, spatial: torch.Tensor, sequence_idx: int, imposters: Set[int] = None, ax=None):
 
