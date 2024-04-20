@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import List
 import os
 import math
@@ -15,6 +16,8 @@ import tqdm
 from torch import nn
 import torch
 import torch.functional as F
+
+from utils import add_info_to_episode_dict
 
 
 def run_experiment(
@@ -143,13 +146,10 @@ def train(
     ) = AgentTypes.AGENT,  # trains both imposters and crew by default
     num_saves: int = 5,
 ):
-    rewards = torch.empty(size=(num_steps, env.n_agents))
     returns = []
     game_lengths = []
     losses = []
-    kills = []
-    vote_outs = []
-    game_results = []
+    info_list = []  # keep track of events during each episode
 
     # Initialize structures to store the models at different stages of training
     t_saves = np.linspace(0, num_steps, num_saves - 1, endpoint=False)
@@ -159,6 +159,9 @@ def train(
 
     state, info = env.reset()  # Initialize state of first episode
 
+    episode_info_dict = defaultdict(list)
+    add_info_to_episode_dict(episode_info_dict, info)
+
     G = torch.zeros(env.n_agents)
 
     # Iterate for a total of `num_steps` steps
@@ -166,7 +169,7 @@ def train(
     for t_total in pbar:
 
         # Save model
-        if t_total in t_saves:
+        if t_total in t_saves and who_to_train is not None:
             percent_progress = math.round(t_total / num_steps * 100)
             imposter_model.dump_to_checkpoint(
                 os.path.join(
@@ -214,6 +217,9 @@ def train(
 
         # TODO: USE INFO TO STORE game details
         next_state, reward, done, trunc, info = env.step(agent_actions=agent_actions)
+        G = G * gamma + reward
+
+        add_info_to_episode_dict(episode_info_dict, info)
 
         # adding the timestep to replay buffer
         replay_buffer.add(
@@ -259,7 +265,7 @@ def train(
         if done or trunc:
 
             pbar.set_description(
-                f"Episode: {i_episode} | Steps: {t_episode + 1} | Return: {G:5.2f} | Epsilon: {eps:4.2f} | Loss: {losses[-1]:4.2f}"
+                f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Loss: {losses[-1]:4.2f}"
             )
 
             returns.append(G.tolist())
@@ -267,6 +273,8 @@ def train(
             G = torch.zeros(env.n_agents)
             t_episode = 0
             i_episode += 1
+            info_list.append(dict(episode_info_dict))
+            episode_info_dict = defaultdict(list)
 
             state, _ = env.reset()
 
@@ -281,6 +289,8 @@ def train(
     crew_model.dump_to_checkpoint(
         os.path.join(save_directory_path, f"crew_model_100%.pt")
     )
+
+    return info_list
 
 
 def train_step(
