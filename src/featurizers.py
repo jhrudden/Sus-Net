@@ -5,6 +5,11 @@ import torch
 from src.env import FourRoomEnv, StateFields
 from abc import ABC, abstractmethod
 
+"""
+TODO:
+1. Make it batchable
+2. Add dead rewards
+"""
 
 Q1_mask = np.zeros((9, 9))
 Q1_mask[:5, :5] = 1.0
@@ -35,13 +40,12 @@ class StateSequenceFeaturizer(ABC):
         self.sequence_len = sequence_len
 
     @abstractmethod
-    def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]) -> None:
+    def fit(self, state_sequence: torch.Tensor) -> None:
         """
         Featurizes the state sequence and imposter locations. Stores the featurized states, this impacts state returned by generator.
 
         Parameters:
-            state_sequence (Tuple): The state sequence.
-            imposter_locations (List[Tuple]): The imposter locations.
+            state_sequence (torch.Tensor): A sequence of states.
         """
         raise NotImplementedError("Need to implement fit method.")
 
@@ -85,7 +89,7 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
             ]
         )
 
-    def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]):
+    def fit(self, state_sequence: Tuple):
         assert (
             len(state_sequence) == self.sequence_len
         ), f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
@@ -93,7 +97,6 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
             self.env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
         ]
         self.sequence_len = len(self.states)
-        self.imposter_locations = imposter_locations
 
         self.spatial, self.agent_non_spatial, self.global_non_spatial = (
             self._featurize_state()
@@ -168,36 +171,45 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
             ]
         )
 
-    def fit(self, state_sequence: Tuple, imposter_locations: List[Tuple]) -> None:
-        assert (
-            len(state_sequence) == self.sequence_len
-        ), f"Sequence length mismatch. Expected: {self.sequence_len} states. Got: {len(state_sequence)} states."
-        self.states = [
-            self.env.unflatten_state(s) for s in torch.unbind(state_sequence, dim=0)
-        ]
-        self.sequence_len = len(self.states)
-        self.imposter_locations = imposter_locations
+    def fit(self, state_sequence: torch.Tensor) -> None:
+        assert state_sequence.dim() == 3, f"Expected 4D tensor. Got: {state_sequence.dim()}"
 
-        self.spatial, self.non_spatial = self._featurize_state()
+        self.B, self.T, S  = state_sequence.size()
 
-    def _featurize_state(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        for seq_idx in range(self.T):
+            batch_states = [
+                self.env.unflatten_state(s) for s in state_sequence[:, seq_idx, :]
+            ]
+            spatial, non_spatial = self._featurize_state(batch_states)
+
+            if seq_idx == 0:
+                self.spatial = spatial
+                self.non_spatial = non_spatial
+            else:
+                self.spatial = torch.stack([self.spatial, spatial])
+                self.non_spatial = torch.stack([self.non_spatial, non_spatial])
+        
+        self.non_spatial = self.non_spatial.transpose(0, 1)
+        self.spatial = self.spatial.transpose(0, 1)
+
+    def _featurize_state(self, batch_state) -> Tuple[torch.Tensor, torch.Tensor]:
         spatial_features = torch.stack(
-            [self.spatial_features.extract_features(state) for state in self.states]
+            [self.spatial_features.extract_features(state) for state in batch_state]
         )
         non_spatial_features = torch.stack(
-            [self.non_spatial_features.extract_features(state) for state in self.states]
+            [self.non_spatial_features.extract_features(state) for state in batch_state]
         )
 
         return spatial_features, non_spatial_features
 
     def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
         for agent_idx in range(self.env.n_agents):
-            agent_idx_tensor = torch.zeros(self.sequence_len, self.env.n_agents)
-            agent_idx_tensor[:, agent_idx] = 1
+            agent_idx_tensor = torch.zeros(self.B, self.T, self.env.n_agents)
+            agent_idx_tensor[:, :, agent_idx] = 1
 
             yield (
                 self.spatial.detach().clone(),
-                torch.cat([self.non_spatial.detach().clone(), agent_idx_tensor], dim=1),
+                torch.cat([self.non_spatial.detach().clone(), agent_idx_tensor], dim=2),
             )
 
 

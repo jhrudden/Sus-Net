@@ -146,13 +146,13 @@ class FastReplayBuffer:
                 break
 
         seq = torch.flip(seq, [1])
-
+        
         return Batch(
             states=self.states[seq],
             actions=self.actions[seq],
             rewards=self.rewards[seq],
             next_states=self.next_states[seq],
-            imposters=self.imposters[seq],
+            imposters=self.imposters[seq[:, 0]], # imposters don't change over the trajectory
             dones=self.dones[seq],
         )
 

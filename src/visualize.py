@@ -1,7 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
-from typing import List, Dict
+from typing import List, Dict, Optional, Set
 import pygame
 import pathlib
 
@@ -304,21 +304,25 @@ class AmongUsVisualizer:
 
 class StateSequenceVisualizer:
     def __init__(self, featurizer: StateSequenceFeaturizer, cmap="Blues"):
+        # TODO: revisit giving imposter_positions to constructor, this is a hack
         self.featurizer = featurizer
         self.cmap = cmap
 
-    def visualize_global_state(self):
-        self._visualize_sequence(self.featurizer.spatial, title="Global State")
+    def visualize_global_state(self, imposters: torch.Tensor):
+        for b, spatial in enumerate(torch.unbind(self.featurizer.spatial, dim=0)):
+            imposters_locations = set(imposters[b].tolist())
+            self._visualize_sequence(spatial, imposters_locations, title=f"Global State, Batch {b}")
 
     def visualize_perspectives(self):
+        assert self.featurizer.batch_size == 1, "Visualizing perspectives only works for batch size 1"
         for agent_idx, (spatial, non_spatial) in enumerate(self.featurizer.generator()):
             self._visualize_sequence(
-                spatial,
+                spatial.squeeze(0), # remove batch dimension
                 title=f"Agent {agent_idx}'s Perspective",
-                description=f"Non-Spatial: \n{str(non_spatial)}",
+                description=f"Non-Spatial: \n{str(non_spatial.squeeze(0))}",
             )
 
-    def _visualize_step(self, spatial: torch.Tensor, sequence_idx: int, ax=None):
+    def _visualize_step(self, spatial: torch.Tensor, sequence_idx: int, imposters: Set[int] = None, ax=None):
 
         n_channels, n_rows, n_cols = spatial[sequence_idx, ...].shape
         n_agents = self.featurizer.env.n_agents
@@ -330,8 +334,6 @@ class StateSequenceVisualizer:
 
         cells = np.arange(n_rows)
         ticks = cells - 0.5
-
-        imposters = set(self.featurizer.imposter_locations[sequence_idx].tolist())
 
         for channel_idx in range(n_channels):
             if channel_idx < n_agents:
@@ -365,7 +367,7 @@ class StateSequenceVisualizer:
                     )
 
     def _visualize_sequence(
-        self, spatial: torch.Tensor, title: str = None, description: str = None
+        self, spatial: torch.Tensor, imposters: Set[int], title: str = None, description: str = None
     ):
         seq_len, n_channels, _, __ = spatial.size()
 
@@ -379,7 +381,7 @@ class StateSequenceVisualizer:
                 + "}$"
             )
             ax[seq_idx][0].set_ylabel(label, rotation=0, labelpad=40, fontsize=20)
-            self._visualize_step(spatial, seq_idx, ax[seq_idx])
+            self._visualize_step(spatial, seq_idx, ax=ax[seq_idx], imposters=imposters)
 
         if title is not None:
             plt.suptitle(title, fontsize=20)
