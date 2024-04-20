@@ -33,7 +33,7 @@ def run_experiment(
     scheduler_start_eps: float = 1.0,
     scheduler_end_eps: float = 0.05,
     scheduler_time_steps: int = 1_000_000,
-    who_to_train: AgentTypes = AgentTypes.AGENT,
+    who_to_train: AgentTypes | None = AgentTypes.AGENT,
     imposter_pretrained_model_path: str | None = None,
     crew_pretrained_model_path: str | None = None,
     experiment_save_path: str | None = None,
@@ -138,7 +138,9 @@ def train(
     train_step_interval: int = 5,
     batch_size: int = 32,
     gamma: float = 0.99,
-    who_to_train: AgentTypes = AgentTypes.AGENT,  # trains both imposters and crew by default
+    who_to_train: (
+        AgentTypes | None
+    ) = AgentTypes.AGENT,  # trains both imposters and crew by default
     num_saves: int = 5,
 ):
     rewards = torch.empty(size=(num_steps, env.n_agents))

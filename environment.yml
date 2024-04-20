@@ -13,3 +13,4 @@ dependencies:
   - pygame
   - pre-commit
   - tqdm
+  - torchinfo
