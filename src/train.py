@@ -1,4 +1,3 @@
-from collections import defaultdict
 from enum import StrEnum, auto
 import os
 import numpy as np
@@ -6,27 +5,29 @@ import torch
 import torch.nn.functional as F
 import copy
 import tqdm
-
+import pathlib
 from src.scheduler import ExponentialSchedule
 from src.env import FourRoomEnv, StateFields
-from src.featurizers import (
-    StateSequenceFeaturizer,
-    FeaturizerType
-)
+from src.featurizers import StateSequenceFeaturizer, FeaturizerType
 from src.metrics import EpisodicMetricHandler
 from src.replay_memory import FastReplayBuffer
 from src.models.dqn import ModelType, Q_Estimator
+
 
 class OptimizerType(StrEnum):
     ADAM = auto()
 
     @staticmethod
     def build(optimizer_type: str, model: Q_Estimator, learning_rate: float):
-        assert optimizer_type in [o.value for o in OptimizerType], f"Invalid optimizer type: {optimizer_type}"
+        assert optimizer_type in [
+            o.value for o in OptimizerType
+        ], f"Invalid optimizer type: {optimizer_type}"
         if model.model_type == ModelType.RANDOM:
             return None
         if optimizer_type == OptimizerType.ADAM:
-            return torch.optim.Adam(params=model.parameters(), lr=learning_rate) # might need to make this more flexible in the future
+            return torch.optim.Adam(
+                params=model.parameters(), lr=learning_rate
+            )  # might need to make this more flexible in the future
 
 
 class DQNTeamTrainer:
@@ -68,7 +69,12 @@ class DQNTeamTrainer:
             crew_samples = ~imposter_samples
 
             # training via gradient accumulation
-            for loss_idx, (opt, team_samples, team_model, team_model_target) in enumerate(
+            for loss_idx, (
+                opt,
+                team_samples,
+                team_model,
+                team_model_target,
+            ) in enumerate(
                 [
                     (
                         self.imposter_optimizer,
@@ -154,9 +160,13 @@ def run_experiment(
     crew_optimizer = imposter_optimizer = None
     if optimizer_type is not None:
         if train_imposter:
-            imposter_optimizer = OptimizerType.build(optimizer_type, imposter_model, learning_rate)
+            imposter_optimizer = OptimizerType.build(
+                optimizer_type, imposter_model, learning_rate
+            )
         if train_crew:
-            crew_optimizer = OptimizerType.build(optimizer_type, crew_model, learning_rate)
+            crew_optimizer = OptimizerType.build(
+                optimizer_type, crew_model, learning_rate
+            )
 
     # initializing trainer
     trainer = DQNTeamTrainer(
@@ -176,7 +186,8 @@ def run_experiment(
     # initialize replay buffer and prepopulate it
     replay_buffer = FastReplayBuffer(
         max_size=replay_buffer_size,
-        trajectory_size=sequence_length + 1, # +1 so we always fetch both state and next state from the buffer
+        trajectory_size=sequence_length
+        + 1,  # +1 so we always fetch both state and next state from the buffer
         state_size=env.flattened_state_size,
         n_imposters=env.n_imposters,
         n_agents=env.n_agents,
@@ -184,9 +195,7 @@ def run_experiment(
     replay_buffer.populate(env=env, num_steps=replay_prepopulate_steps)
 
     # initialize featurizer
-    featurizer = FeaturizerType.build(
-        featurizer_type, env=env
-    )
+    featurizer = FeaturizerType.build(featurizer_type, env=env)
 
     # run actual experiment
     train(
@@ -195,8 +204,8 @@ def run_experiment(
         num_steps=num_steps,
         replay_buffer=replay_buffer,
         featurizer=featurizer,
-        imposter_model = imposter_model,
-        crew_model = crew_model,
+        imposter_model=imposter_model,
+        crew_model=crew_model,
         save_directory_path=experiment_save_path,
         train_step_interval=train_step_interval,
         batch_size=batch_size,
@@ -207,14 +216,12 @@ def run_experiment(
     )
 
     avg_metrics = metrics.compute()
-    
-    print(f"Average Metrics: {avg_metrics}")
 
+    print(f"Average Metrics: {avg_metrics}")
 
     # run experiment
     if experiment_save_path is not None:
-        # TODO: SAVE some stuff!!!!
-        pass
+        metrics.save_metrics(save_file_path=experiment_save_path / "metrics.json")
 
 
 def train(
@@ -245,7 +252,7 @@ def train(
     t_episode = 0  # Use this to indicate the time-step inside current episode
 
     state, info = env.reset()  # Initialize state of first episode
-    
+
     # adding dummy time step to replay buffer
     replay_buffer.add_start(env.flatten_state(state), env.imposter_idxs)
 
@@ -260,11 +267,15 @@ def train(
             percent_progress = np.round(t_total / num_steps * 100)
             imposter_model.dump_to_checkpoint(
                 os.path.join(
-                    save_directory_path, f"imposter_{imposter_model.model_type}_{percent_progress}%.pt"
+                    save_directory_path,
+                    f"imposter_{imposter_model.model_type}_{percent_progress}%.pt",
                 )
             )
             crew_model.dump_to_checkpoint(
-                os.path.join(save_directory_path, f"crew_{crew_model.model_type}_{percent_progress}%.pt")
+                os.path.join(
+                    save_directory_path,
+                    f"crew_{crew_model.model_type}_{percent_progress}%.pt",
+                )
             )
 
         # Update Target DQNs
@@ -292,7 +303,9 @@ def train(
                 else:
                     agent_actions[agent_idx] = int(
                         torch.argmax(
-                            imposter_model(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
+                            imposter_model(
+                                spatial[:, 1:, :, :, :], non_spatial[:, 1:, :]
+                            )
                         )
                     )
 
@@ -329,7 +342,7 @@ def train(
             step_losses = trainer.train_step(
                 batch=batch,
                 featurizer=featurizer,
-                imposter_model = imposter_model,
+                imposter_model=imposter_model,
                 imposter_target_model=imposter_target_model,
                 crew_model=crew_model,
                 crew_target_model=crew_target_model,
@@ -365,6 +378,8 @@ def train(
     imposter_model.dump_to_checkpoint(
         os.path.join(save_directory_path, f"imposter_dqn_100%.pt")
     )
-    crew_model.dump_to_checkpoint(os.path.join(save_directory_path, f"crew_dqn_100%.pt"))
+    crew_model.dump_to_checkpoint(
+        os.path.join(save_directory_path, f"crew_dqn_100%.pt")
+    )
 
     return info_list, returns, losses

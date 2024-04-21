@@ -1,6 +1,8 @@
 from enum import StrEnum, auto
 import json
 from typing import Any, Dict
+import json
+
 
 class SusMetrics(StrEnum):
     IMP_KILLED_CREW = auto()
@@ -24,6 +26,7 @@ class SusMetrics(StrEnum):
             SusMetrics.TOTAL_STALEMATES,
             SusMetrics.TOTAL_TIME_STEPS,
         ]
+
 
 class EnvMetricHandler:
     def __init__(self):
@@ -56,16 +59,24 @@ class EnvMetricHandler:
     def __repr__(self):
         return json.dumps(self.metrics, indent=4)
 
+
 class EpisodicMetricHandler:
     """
     Averages metrics across multiple episodes
     """
+
     def __init__(self):
         self.metrics = {metric: [] for metric in SusMetrics}
-    
+
     def step(self, metrics: Dict[SusMetrics, int]) -> None:
         for metric, value in metrics.items():
             self.metrics[metric].append(value)
 
     def compute(self) -> Dict[SusMetrics, float]:
-        return {metric: sum(values) / len(values) for metric, values in self.metrics.items()}
+        return {
+            metric: sum(values) / len(values) for metric, values in self.metrics.items()
+        }
+
+    def save_metrics(self, save_file_path):
+        with open(save_file_path, "w") as f:
+            json.dump(self.metrics, f)
