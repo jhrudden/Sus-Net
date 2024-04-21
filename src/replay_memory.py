@@ -5,7 +5,7 @@ from typing import Union, List
 
 # Batch namedtuple, i.e. a class which contains the given attributes
 Batch = namedtuple(
-    "Batch", ("states", "actions", "rewards", "next_states", "imposters", "dones")
+    "Batch", ("states", "actions", "rewards", "imposters", "dones")
 )
 
 
@@ -48,23 +48,35 @@ class FastReplayBuffer:
     def get_last_trajectory(self):
         pass
 
+    def add_start(self, state, imposters):
+        """
+        Add the start of a new trajectory to the buffer
+
+        NOTE: fake action and reward are added to the buffer to maintain consistency
+
+        Parameters
+            - state (np.ndarray): Current state
+            - imposters (np.ndarray): List of imposter indices
+        """
+        self.add(state, -1, 0, False, imposters, is_start=True)
+
     def add(
         self,
         state,
         action,
         reward,
-        next_state,
         done,
         imposters,
         is_start: bool = False,
     ):
         """Add a transition to the buffer.
-
-        :param state: 1-D np.ndarray of state-features
-        :param action: Integer action
-        :param reward: Float reward
-        :param next_state: 1-D np.ndarray of state-features
-        :param done: Boolean value indicating the end of an episode
+        Parameters
+            - state (np.ndarray): Current state
+            - action (np.ndarray): Action taken
+            - reward (float): Reward received
+            - done (bool): Whether the episode ended
+            - imposters (np.ndarray): List of imposter indices
+            - is_start (bool): Whether this transition is the start of a new episode (default: False)
         """
         # check if we are overwriting a trajectory
         # if we are, then pop trajectory_size - 1 elemnts from the smart_buffer or until we reach the start of an episode
@@ -79,7 +91,6 @@ class FastReplayBuffer:
         self.states[self.idx] = torch.tensor(state)
         self.actions[self.idx] = torch.tensor(action)
         self.rewards[self.idx] = torch.tensor(reward)
-        self.next_states[self.idx] = torch.tensor(next_state)
         self.dones[self.idx] = torch.tensor(done)
         self.starts[self.idx] = torch.tensor(is_start)
         self.imposters[self.idx] = torch.tensor(imposters)
@@ -149,7 +160,6 @@ class FastReplayBuffer:
             states=self.states[seq],
             actions=self.actions[seq],
             rewards=self.rewards[seq],
-            next_states=self.next_states[seq],
             imposters=self.imposters[
                 seq[:, 0]
             ],  # imposters don't change over the trajectory
@@ -178,7 +188,7 @@ class FastReplayBuffer:
                 n_s, reward, done, truncation, _ = env.step(action)
                 next_state = env.flatten_state(n_s)
                 self.add(
-                    state, action, reward, next_state, done, imposters, is_start=start
+                    state, action, reward, done, imposters, is_start=start
                 )
                 state = next_state
                 step += 1
