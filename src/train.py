@@ -37,7 +37,7 @@ class DQNTeamTrainer:
         self.crew_optimizer = crew_optimizer
         self.gamma = gamma
 
-        # wether or not this trainer is just a place holder!
+        # whether or not this trainer is just a place holder!
         self.train = imposter_optimizer is not None or crew_optimizer is not None
 
     def train_step(
@@ -82,9 +82,10 @@ class DQNTeamTrainer:
             ):
                 if opt is not None and team_samples.sum() > 0:
                     team_model.train()
+                    # compute the value of the actions taken by the agent (gradients are calculated here!)
                     action_values = team_model(
-                        spatial[team_samples, :-1, :, :, :].detach().clone(),
-                        non_spatial[team_samples, :-1, :].detach().clone(),
+                        spatial[team_samples, :-1, :, :, :],
+                        non_spatial[team_samples, :-1, :],
                     )
                     actions = torch.tensor(batch.actions[team_samples, -1, agent_idx])
                     values = torch.gather(
@@ -97,13 +98,14 @@ class DQNTeamTrainer:
                             batch.rewards[team_samples, -2, agent_idx]
                         ).view(-1)
 
+                        # calculate target values, no gradients here (notice the detach() calls
                         target_values = (
                             rewards
                             + self.gamma
                             * torch.max(
                                 team_model_target(
-                                    spatial[team_samples, 1:, :, :, :].detach().clone(),
-                                    non_spatial[team_samples, 1:, :].detach().clone(),
+                                    spatial[team_samples, 1:, :, :, :].detach(),
+                                    non_spatial[team_samples, 1:, :].detach(),
                                 ),
                                 dim=1,
                             )[0]

@@ -187,14 +187,14 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
                 [
                     agent_non_spatial_rep[:, :, :, agents]
                     .detach()
-                    .clone()
+                    .clone().requires_grad_(True)
                     .view(self.B, self.T, -1),
                     global_non_spatial_rep,
                 ],
                 dim=2,
             )
 
-            yield (spatial_rep[:, :, channel_order, :, :].detach().clone(), non_spatial)
+            yield (spatial_rep[:, :, channel_order, :, :].detach().clone().requires_grad_(True), non_spatial)
 
 
 class GlobalFeaturizer(StateSequenceFeaturizer):
