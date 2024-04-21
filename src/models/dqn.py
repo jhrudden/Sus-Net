@@ -164,17 +164,11 @@ class SpatialDQN(nn.Module):
         )
 
     def forward(self, spatial_x, non_spatial_x):
-
-        print("spacial ", spatial_x.shape)
-        print("ns ", non_spatial_x.shape)
-
         # running through CNN
         batch_size, timesteps, C, H, W = spatial_x.size()
         cnn_in = spatial_x.view(batch_size * timesteps, C, H, W)
         cnn_out = self.cnn(cnn_in)
         # Reshape the output for the RNN
-
-        print("cnn out shape ", cnn_out.shape)
 
         cnn_out = cnn_out.view(batch_size, timesteps, -1)
         # appending non-spatial features
