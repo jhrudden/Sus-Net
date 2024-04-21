@@ -4,9 +4,7 @@ from src.utils import EnhancedOrderedDict
 from typing import Union, List
 
 # Batch namedtuple, i.e. a class which contains the given attributes
-Batch = namedtuple(
-    "Batch", ("states", "actions", "rewards", "imposters", "dones")
-)
+Batch = namedtuple("Batch", ("states", "actions", "rewards", "imposters", "dones"))
 
 
 class FastReplayBuffer:
@@ -125,7 +123,7 @@ class FastReplayBuffer:
         Get the last trajectory from the buffer
         """
         assert self.size > 0, "Replay buffer is empty, can't sample"
-        sample_idx = self.trajectory_dict.get_last()
+        sample_idx = (self.idx - 1) % self.max_size
         return self._get_sequence(sample_idx)
 
     def _get_sequence(self, sample_idx: Union[int, torch.Tensor]):
@@ -146,11 +144,25 @@ class FastReplayBuffer:
             seq[neg, i] = new_idx[neg].squeeze()
             starts = self.starts[new_idx].squeeze()
 
-            fill_condition = (starts & neg & (i < self.trajectory_size - 1)).squeeze()
+            fill_condition = starts & neg & (i < self.trajectory_size - 1)
+
             if fill_condition.sum() > 0:
-                seq[fill_condition, i:] = new_idx[fill_condition].repeat(
-                    1, self.trajectory_size - i
-                )
+                try:
+                    seq[fill_condition, i:] = new_idx[fill_condition].repeat(
+                        1, self.trajectory_size - i
+                    )
+                except Exception as e:
+                    print(new_idx)
+
+                    print(fill_condition)
+                    print(i)
+                    print(batch_size)
+                    print(self.states[sample_idx].shape)
+                    print(self.states[sample_idx])
+                    print(seq.shape)
+                    print(seq[fill_condition].shape)
+                    print(seq[fill_condition])
+                    raise e
 
             if not torch.any(neg):
                 break
@@ -188,9 +200,7 @@ class FastReplayBuffer:
                 action = env.sample_actions()
                 n_s, reward, done, truncation, _ = env.step(action)
                 next_state = env.flatten_state(n_s)
-                self.add(
-                    state, action, reward, done, imposters, is_start=start
-                )
+                self.add(state, action, reward, done, imposters, is_start=start)
                 state = next_state
                 step += 1
                 start = False
