@@ -95,7 +95,8 @@ class FastReplayBuffer:
         self.starts[self.idx] = torch.tensor(is_start)
         self.imposters[self.idx] = torch.tensor(imposters)
 
-        self.trajectory_dict.insert(self.idx)
+        if not is_start:
+            self.trajectory_dict.insert(self.idx)
 
         # Circulate the pointer to the next position
         self.idx = (self.idx + 1) % self.max_size
