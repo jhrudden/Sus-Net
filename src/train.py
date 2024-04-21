@@ -14,7 +14,7 @@ import numpy as np
 import tqdm
 from torch import nn
 import torch
-import torch.functional as F
+import torch.nn.functional as F
 import copy
 
 from src.utils import add_info_to_episode_dict
@@ -40,7 +40,7 @@ class DQNTeamTrainer:
         crew_target_dqn,
     ):
 
-        accumulated_losses = (0, 0)
+        accumulated_losses = [0, 0]
 
         if not self.train:
             return accumulated_losses
@@ -73,14 +73,18 @@ class DQNTeamTrainer:
                     (self.crew_optimizer, crew_samples, crew_dqn, crew_target_dqn),
                 ]
             ):
-                if opt is not None:
+                if opt is not None and team_samples.sum() > 0:
                     team_dqn.train()
+                    print("team samples ", team_samples, loss_idx)
 
                     print(spatial.shape)
                     print(non_spatial.shape)
 
+                    print(agent_idx, loss_idx)
+
                     action_values = team_dqn(
-                        spatial[team_samples], non_spatial[team_samples]
+                        spatial[team_samples, :-1, :, :, :],
+                        non_spatial[team_samples, :-1, :],
                     )
                     actions = torch.tensor(batch.actions[team_samples, -1, agent_idx])
                     values = torch.gather(
@@ -88,14 +92,23 @@ class DQNTeamTrainer:
                     ).view(-1)
 
                     with torch.no_grad():
-                        done_mask = torch.tensor(batch.dones[team_samples]).view(-1)
-                        rewards = torch.tensor(batch.rewards[team_samples]).view(-1)
+                        done_mask = torch.tensor(batch.dones[team_samples, -1]).view(-1)
+                        print("rewards ", batch.rewards.shape)
+                        rewards = torch.tensor(
+                            batch.rewards[team_samples, agent_idx, -2]
+                        ).view(-1)
                         next_states = torch.tensor(batch.next_states[team_samples])
 
                         target_values = (
                             rewards
                             + self.gamma
-                            * torch.max(team_dqn_target(next_states), dim=1)[0]
+                            * torch.max(
+                                team_dqn_target(
+                                    spatial[team_samples, 1:, :, :, :],
+                                    non_spatial[team_samples, 1:, :],
+                                ),
+                                dim=1,
+                            )[0]
                         )
                         target_values[done_mask] = rewards[done_mask]
 
@@ -119,7 +132,7 @@ def run_experiment(
     imposter_dqn_type: str = "spatial_dqn",
     crew_dqn_type: str = "spatial_dqn",
     featurizer_type: str = "perspective",
-    sequence_length: int = 5,
+    sequence_length: int = 2,
     replay_buffer_size: int = 100_000,
     replay_prepopulate_steps: int = 1000,
     batch_size: int = 32,
@@ -139,7 +152,6 @@ def run_experiment(
 ):
     # initializing models
     if imposter_dqn_type == "spatial_dqn":
-
         imposter_dqn = SpatialDQN(**imposter_dqn_args)
     elif imposter_dqn_type == "random":
         imposter_dqn = RandomEquiprobable(env.n_imposter_actions)
@@ -193,7 +205,7 @@ def run_experiment(
     # initialize replay buffer and prepopulate it
     replay_buffer = FastReplayBuffer(
         max_size=replay_buffer_size,
-        trajectory_size=sequence_length,
+        trajectory_size=sequence_length + 1,
         state_size=env.flattened_state_size,
         n_imposters=env.n_imposters,
         n_agents=env.n_agents,
@@ -258,9 +270,11 @@ def train(
     t_episode = 0  # Use this to indicate the time-step inside current episode
 
     state, info = env.reset()  # Initialize state of first episode
-
     episode_info_dict = defaultdict(list)
     add_info_to_episode_dict(episode_info_dict, info)
+
+    # adding dummy time step to replay buffer
+    replay_buffer.add_start(env.flatten_state(state), env.imposter_idxs)
 
     G = torch.zeros(env.n_agents)
 
@@ -295,6 +309,9 @@ def train(
 
         for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generator()):
 
+            print(spatial.shape)
+            print(non_spatial.shape)
+
             # choose action for alive imposter
             if env.imposter_mask[agent_idx] and alive_agents[agent_idx]:
                 if np.random.random() <= eps:
@@ -303,7 +320,9 @@ def train(
                     )
                 else:
                     agent_actions[agent_idx] = int(
-                        torch.argmax(imposter_dqn(spatial, non_spatial))
+                        torch.argmax(
+                            imposter_dqn(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
+                        )
                     )
 
             # choose action for alive crew member
@@ -312,7 +331,7 @@ def train(
                     agent_actions[agent_idx] = np.random.randint(0, env.n_crew_actions)
                 else:
                     agent_actions[agent_idx] = int(
-                        torch.argmax(crew_dqn(spatial, non_spatial))
+                        imposter_dqn(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
                     )
 
         # TODO: USE INFO TO STORE game details
@@ -326,10 +345,9 @@ def train(
             state=env.flatten_state(state),
             action=agent_actions,
             reward=reward,
-            next_state=env.flatten_state(next_state),
             done=done,
             imposters=env.imposter_idxs,
-            is_start=t_episode == 0,
+            is_start=False,
         )
 
         # Training update for imposters and/or crew
@@ -354,6 +372,7 @@ def train(
                 f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Loss: {00}"
             )
 
+            # resetting episode
             returns.append(G.tolist())
             game_lengths.append(t_episode)
             G = torch.zeros(env.n_agents)
@@ -362,7 +381,9 @@ def train(
             info_list.append(dict(episode_info_dict))
             episode_info_dict = defaultdict(list)
 
-            state, _ = env.reset()
+            state, info = env.reset()
+            add_info_to_episode_dict(episode_info_dict, info)
+            replay_buffer.add_start(env.flatten_state(state), env.imposter_idxs)
 
         else:
             state = next_state

@@ -91,10 +91,15 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
                 StateFieldFeaturizer(env=env, state_field=StateFields.JOB_STATUS),
             ]
         )
-    
+
     @property
     def featurized_shape(self):
-        non_spatial_shape = torch.sum(torch.stack([self.agent_non_sp_f.shape, self.global_non_sp_f.shape], axis=0), axis=0)
+        non_spatial_shape = torch.sum(
+            torch.stack(
+                [self.agent_non_sp_f.shape, self.global_non_sp_f.shape], axis=0
+            ),
+            axis=0,
+        )
         return self.sp_f.shape, non_spatial_shape
 
     def fit(self, state_sequence: torch.Tensor) -> None:
@@ -113,20 +118,22 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
             )
 
             if seq_idx == 0:
-                self.spatial = spatial
-                self.agent_non_spatial = agent_non_spatial
-                self.global_non_spatial = global_non_spatial
+                # Start with a list
+                spatial_list = [spatial]
+                agent_non_spatial_list = [agent_non_spatial]
+                global_non_spatial_list = [global_non_spatial]
             else:
-                self.spatial = torch.stack([self.spatial, spatial])
-                self.agent_non_spatial = torch.stack(
-                    [self.agent_non_spatial, agent_non_spatial]
-                )
-                self.global_non_spatial = torch.stack(
-                    [self.global_non_spatial, global_non_spatial]
-                )
+                # Append new tensor to the list
+                spatial_list.append(spatial)
+                agent_non_spatial_list.append(agent_non_spatial)
+                global_non_spatial_list.append(global_non_spatial)
 
-        self.agent_non_spatial = self.agent_non_spatial.transpose(0, 1)
+            self.spatial = torch.stack(spatial_list)
+            self.agent_non_spatial = torch.stack(agent_non_spatial_list)
+            self.global_non_spatial = torch.stack(global_non_spatial_list)
+
         self.spatial = self.spatial.transpose(0, 1)
+        self.agent_non_spatial = self.agent_non_spatial.transpose(0, 1)
         self.global_non_spatial = self.global_non_spatial.transpose(0, 1)
 
     def _featurize_state(
@@ -223,11 +230,14 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
             spatial, non_spatial = self._featurize_state(batch_states)
 
             if seq_idx == 0:
-                self.spatial = spatial
-                self.non_spatial = non_spatial
+                spatial_list = [spatial]  # Start with a list
+                non_spatial_list = [non_spatial]
             else:
-                self.spatial = torch.stack([self.spatial, spatial])
-                self.non_spatial = torch.stack([self.non_spatial, non_spatial])
+                spatial_list.append(spatial)  # Append new tensor to the list
+                non_spatial_list.append(non_spatial)
+
+            self.spatial = torch.stack(spatial_list)  # Convert list to tensor stack
+            self.non_spatial = torch.stack(non_spatial_list)
 
         self.non_spatial = self.non_spatial.transpose(0, 1)
         self.spatial = self.spatial.transpose(0, 1)
@@ -252,8 +262,10 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
                 torch.cat([self.non_spatial.detach().clone(), agent_idx_tensor], dim=2),
             )
 
+
 class Featurizer(ABC):
     """Extracts features from the environment state."""
+
     def __init__(self, env: FourRoomEnv):
         self.env = env
 
@@ -261,7 +273,7 @@ class Featurizer(ABC):
     def extract_features(self, state: Tuple) -> torch.Tensor:
         """Extracts features from the environment state."""
         raise NotImplementedError("Need to implement extract_features method.")
-    
+
     @property
     def shape(self) -> Tuple:
         """Returns the shape of the features."""
@@ -335,7 +347,9 @@ class AgentPositionsFeaturizer(PositionFeaturizer):
 
     @property
     def shape(self):
-        return torch.tensor([self.env.n_agents, self.env.n_cols, self.env.n_rows], dtype=torch.int)
+        return torch.tensor(
+            [self.env.n_agents, self.env.n_cols, self.env.n_rows], dtype=torch.int
+        )
 
 
 class JobFeaturizer(SpatialFeaturizer):
@@ -357,7 +371,7 @@ class JobFeaturizer(SpatialFeaturizer):
             features[int(job_done), x, y] = 1
 
         return features
-    
+
     @property
     def shape(self):
         return torch.tensor([2, self.env.n_cols, self.env.n_rows], dtype=torch.int)
@@ -379,13 +393,14 @@ class CombineFeaturizer(Featurizer):
         return torch.cat(
             [f.extract_features(agent_state) for f in self.featurizers], axis=0
         )
-    
+
     @property
     def shape(self):
         assert len(self.featurizers) > 0, "No featurizers provided."
         shapes = torch.stack([f.shape for f in self.featurizers], axis=0)
         last_dims = shapes[0, 1:]
         return torch.tensor([shapes[:, 0].sum().item(), *last_dims], dtype=torch.int)
+
 
 class PartiallyObservableFeaturizer(CombineFeaturizer):
     """
@@ -438,7 +453,7 @@ class StateFieldFeaturizer(Featurizer):
             agent_state[self.env.state_fields[self.state_field]],
             dtype=torch.float32,
         )
-    
+
     @property
     def shape(self):
         return self.env.compute_state_dims(self.state_field)
