@@ -67,7 +67,3 @@ class EnhancedOrderedDict:
         idx_in_keys = (cut + self.tail) % self.max_size
         return [self.keys[i] for i in idx_in_keys]
 
-
-def add_info_to_episode_dict(episode_info_dict, info_dict):
-    for k, v in info_dict.items():
-        episode_info_dict[k].append(v)

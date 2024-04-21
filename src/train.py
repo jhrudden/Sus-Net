@@ -2,19 +2,18 @@ from collections import defaultdict
 from enum import StrEnum, auto
 import os
 import numpy as np
-from torch import nn
 import torch
 import torch.nn.functional as F
 import copy
 import tqdm
 
-from src.utils import add_info_to_episode_dict
 from src.scheduler import ExponentialSchedule
 from src.env import FourRoomEnv, StateFields
 from src.featurizers import (
     StateSequenceFeaturizer,
     FeaturizerType
 )
+from src.metrics import EpisodicMetricHandler
 from src.replay_memory import FastReplayBuffer
 from src.models.dqn import ModelType, Q_Estimator
 
@@ -171,6 +170,9 @@ def run_experiment(
         scheduler_start_eps, scheduler_end_eps, scheduler_time_steps
     )
 
+    # initialize metric handlers
+    metrics = EpisodicMetricHandler()
+
     # initialize replay buffer and prepopulate it
     replay_buffer = FastReplayBuffer(
         max_size=replay_buffer_size,
@@ -187,8 +189,9 @@ def run_experiment(
     )
 
     # run actual experiment
-    training_log = train(
+    train(
         env=env,
+        metrics=metrics,
         num_steps=num_steps,
         replay_buffer=replay_buffer,
         featurizer=featurizer,
@@ -203,6 +206,11 @@ def run_experiment(
         num_saves=num_checkpoint_saves,
     )
 
+    avg_metrics = metrics.compute()
+    
+    print(f"Average Metrics: {avg_metrics}")
+
+
     # run experiment
     if experiment_save_path is not None:
         # TODO: SAVE some stuff!!!!
@@ -211,6 +219,7 @@ def run_experiment(
 
 def train(
     env: FourRoomEnv,
+    metrics: EpisodicMetricHandler,
     num_steps: int,
     replay_buffer: FastReplayBuffer,
     featurizer: StateSequenceFeaturizer,
@@ -236,9 +245,7 @@ def train(
     t_episode = 0  # Use this to indicate the time-step inside current episode
 
     state, info = env.reset()  # Initialize state of first episode
-    episode_info_dict = defaultdict(list)
-    add_info_to_episode_dict(episode_info_dict, info)
-
+    
     # adding dummy time step to replay buffer
     replay_buffer.add_start(env.flatten_state(state), env.imposter_idxs)
 
@@ -302,7 +309,6 @@ def train(
 
         next_state, reward, done, trunc, info = env.step(agent_actions=agent_actions)
         G = G * gamma + reward
-        add_info_to_episode_dict(episode_info_dict, info)
 
         # adding the timestep to replay buffer
         replay_buffer.add(
@@ -334,6 +340,9 @@ def train(
         # checking if the env needs to be reset
         if done or trunc:
 
+            # update metrics
+            metrics.step(info)
+
             pbar.set_description(
                 f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Imposter Loss: {losses[-1][0]:4.2f} | Crew Loss: {losses[-1][1]:4.2f}"
             )
@@ -344,11 +353,8 @@ def train(
             G = torch.zeros(env.n_agents)
             t_episode = 0
             i_episode += 1
-            info_list.append(dict(episode_info_dict))
-            episode_info_dict = defaultdict(list)
 
-            state, info = env.reset()
-            add_info_to_episode_dict(episode_info_dict, info)
+            state, _ = env.reset()
             replay_buffer.add_start(env.flatten_state(state), env.imposter_idxs)
 
         else:
