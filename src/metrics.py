@@ -80,3 +80,7 @@ class EpisodicMetricHandler:
     def save_metrics(self, save_file_path):
         with open(save_file_path, "w") as f:
             json.dump(self.metrics, f)
+
+    def load_metrics(self, metrics_file_path):
+        with open(metrics_file_path, "r") as f:
+            self.metrics = json.load(f)
