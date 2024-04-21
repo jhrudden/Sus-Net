@@ -403,7 +403,7 @@ class FourRoomEnv(Env):
         # TODO: Check if all jobs are completed
         done = False
         reward = 0
-        if np.sum(self.alive_agents[self.imposter_mask]) == 0:
+        if np.sum(self.alive_agents[self.imposter_mask]) == 0 or np.sum(self.completed_jobs) == self.n_jobs:
             self.logger.debug("CREW won!")
             self.metrics.update(SusMetrics.CREW_WON, 1)
             done = True
