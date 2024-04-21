@@ -1,22 +1,33 @@
 from collections import defaultdict
+from enum import StrEnum, auto
 import os
-from src.scheduler import ExponentialSchedule
-from src.env import FourRoomEnv, StateFields
-from src.featurizers import (
-    PerspectiveFeaturizer,
-    StateSequenceFeaturizer,
-    GlobalFeaturizer,
-)
-from src.replay_memory import FastReplayBuffer
-from src.models.dqn import SpatialDQN, RandomEquiprobable
 import numpy as np
-import tqdm
 from torch import nn
 import torch
 import torch.nn.functional as F
 import copy
+import tqdm
 
 from src.utils import add_info_to_episode_dict
+from src.scheduler import ExponentialSchedule
+from src.env import FourRoomEnv, StateFields
+from src.featurizers import (
+    StateSequenceFeaturizer,
+    FeaturizerType
+)
+from src.replay_memory import FastReplayBuffer
+from src.models.dqn import ModelType, Q_Estimator
+
+class OptimizerType(StrEnum):
+    ADAM = auto()
+
+    @staticmethod
+    def build(optimizer_type: str, model: Q_Estimator, learning_rate: float):
+        assert optimizer_type in [o.value for o in OptimizerType], f"Invalid optimizer type: {optimizer_type}"
+        if model.model_type == ModelType.RANDOM:
+            return None
+        if optimizer_type == OptimizerType.ADAM:
+            return torch.optim.Adam(params=model.parameters(), lr=learning_rate) # might need to make this more flexible in the future
 
 
 class DQNTeamTrainer:
@@ -33,10 +44,10 @@ class DQNTeamTrainer:
         self,
         batch,
         featurizer,
-        imposter_dqn,
-        imposter_target_dqn,
-        crew_dqn,
-        crew_target_dqn,
+        imposter_model,
+        imposter_target_model,
+        crew_model,
+        crew_target_model,
     ):
 
         accumulated_losses = [0, 0]
@@ -58,20 +69,20 @@ class DQNTeamTrainer:
             crew_samples = ~imposter_samples
 
             # training via gradient accumulation
-            for loss_idx, (opt, team_samples, team_dqn, team_dqn_target) in enumerate(
+            for loss_idx, (opt, team_samples, team_model, team_model_target) in enumerate(
                 [
                     (
                         self.imposter_optimizer,
                         imposter_samples,
-                        imposter_dqn,
-                        imposter_target_dqn,
+                        imposter_model,
+                        imposter_target_model,
                     ),
-                    (self.crew_optimizer, crew_samples, crew_dqn, crew_target_dqn),
+                    (self.crew_optimizer, crew_samples, crew_model, crew_target_model),
                 ]
             ):
                 if opt is not None and team_samples.sum() > 0:
-                    team_dqn.train()
-                    action_values = team_dqn(
+                    team_model.train()
+                    action_values = team_model(
                         spatial[team_samples, :-1, :, :, :].detach().clone(),
                         non_spatial[team_samples, :-1, :].detach().clone(),
                     )
@@ -90,7 +101,7 @@ class DQNTeamTrainer:
                             rewards
                             + self.gamma
                             * torch.max(
-                                team_dqn_target(
+                                team_model_target(
                                     spatial[team_samples, 1:, :, :, :].detach().clone(),
                                     non_spatial[team_samples, 1:, :].detach().clone(),
                                 ),
@@ -113,11 +124,11 @@ class DQNTeamTrainer:
 def run_experiment(
     env: FourRoomEnv,
     num_steps: int,
-    imposter_dqn_args: dict,
-    crew_dqn_args: dict,
-    imposter_dqn_type: str = "spatial_dqn",
-    crew_dqn_type: str = "spatial_dqn",
-    featurizer_type: str = "perspective",
+    imposter_model_args: dict,
+    crew_model_args: dict,
+    imposter_model_type: ModelType = ModelType.SPATIAL_DQN,
+    crew_model_type: ModelType = ModelType.SPATIAL_DQN,
+    featurizer_type: FeaturizerType = FeaturizerType.GLOBAL,
     sequence_length: int = 2,
     replay_buffer_size: int = 100_000,
     replay_prepopulate_steps: int = 1000,
@@ -128,53 +139,23 @@ def run_experiment(
     scheduler_time_steps: int = 1_000_000,
     train_imposter: bool = True,
     train_crew: bool = True,
-    imposter_pretrained_model_path: str | None = None,
-    crew_pretrained_model_path: str | None = None,
     experiment_save_path: str | None = None,
-    optimizer_type: str = "Adam",
+    optimizer_type: OptimizerType = OptimizerType.ADAM,
     learning_rate: float = 0.0001,
     train_step_interval: int = 5,
     num_checkpoint_saves: int = 5,
 ):
     # initializing models
-    if imposter_dqn_type == "spatial_dqn":
-        imposter_dqn = SpatialDQN(**imposter_dqn_args)
-    elif imposter_dqn_type == "random":
-        imposter_dqn = RandomEquiprobable(env.n_imposter_actions)
-    else:
-        raise ValueError(f"Invalid model type: {imposter_dqn_type}")
-
-    # loading model checkpoint if provided
-    # NOTE: This currently over writes the model initialized above
-    if imposter_pretrained_model_path is not None:
-        imposter_dqn = SpatialDQN.load_from_checkpoint(crew_pretrained_model_path)
-
-    if crew_dqn_type == "spatial_dqn":
-        crew_dqn = SpatialDQN(**crew_dqn_args)
-    elif crew_dqn_type == "random":
-        crew_dqn = RandomEquiprobable(env.n_crew_actions)
-    else:
-        raise ValueError(f"Invalid model type: {imposter_dqn_type}")
-
-    # loading model checkpoint if provided
-    # NOTE: This currently over writes the model initialized above
-    if crew_pretrained_model_path is not None:
-        crew_dqn = SpatialDQN.load_from_checkpoint(crew_pretrained_model_path)
+    imposter_model = ModelType.build(imposter_model_type, **imposter_model_args)
+    crew_model = ModelType.build(crew_model_type, **crew_model_args)
 
     # initializing optimizers
     crew_optimizer = imposter_optimizer = None
-    if optimizer_type == "Adam":
+    if optimizer_type is not None:
         if train_imposter:
-            imposter_optimizer = torch.optim.Adam(
-                params=imposter_dqn.parameters(), lr=learning_rate
-            )
+            imposter_optimizer = OptimizerType.build(optimizer_type, imposter_model, learning_rate)
         if train_crew:
-            crew_optimizer = torch.optim.Adam(
-                params=crew_dqn.parameters(), lr=learning_rate
-            )
-
-    else:
-        raise ValueError(f"Invalid optimizer: {optimizer_type}")
+            crew_optimizer = OptimizerType.build(optimizer_type, crew_model, learning_rate)
 
     # initializing trainer
     trainer = DQNTeamTrainer(
@@ -191,7 +172,7 @@ def run_experiment(
     # initialize replay buffer and prepopulate it
     replay_buffer = FastReplayBuffer(
         max_size=replay_buffer_size,
-        trajectory_size=sequence_length + 1,
+        trajectory_size=sequence_length + 1, # +1 so we always fetch both state and next state from the buffer
         state_size=env.flattened_state_size,
         n_imposters=env.n_imposters,
         n_agents=env.n_agents,
@@ -199,12 +180,9 @@ def run_experiment(
     replay_buffer.populate(env=env, num_steps=replay_prepopulate_steps)
 
     # initialize featurizer
-    if featurizer_type == "perspective":
-        featurizer = PerspectiveFeaturizer(env=env)
-    elif featurizer_type == "global":
-        featurizer = GlobalFeaturizer(env=env)
-    else:
-        raise ValueError(f"Invalid featurizer: {featurizer_type}")
+    featurizer = FeaturizerType.build(
+        featurizer_type, env=env
+    )
 
     # run actual experiment
     training_log = train(
@@ -212,8 +190,8 @@ def run_experiment(
         num_steps=num_steps,
         replay_buffer=replay_buffer,
         featurizer=featurizer,
-        imposter_dqn=imposter_dqn,
-        crew_dqn=crew_dqn,
+        imposter_model = imposter_model,
+        crew_model = crew_model,
         save_directory_path=experiment_save_path,
         train_step_interval=train_step_interval,
         batch_size=batch_size,
@@ -234,8 +212,8 @@ def train(
     num_steps: int,
     replay_buffer: FastReplayBuffer,
     featurizer: StateSequenceFeaturizer,
-    imposter_dqn: nn.Module,
-    crew_dqn: nn.Module,
+    imposter_model: Q_Estimator,
+    crew_model: Q_Estimator,
     scheduler: ExponentialSchedule,
     save_directory_path: str,
     trainer: DQNTeamTrainer,
@@ -271,19 +249,20 @@ def train(
         # Save model
         if t_total in t_saves and trainer.train:
             percent_progress = np.round(t_total / num_steps * 100)
-            imposter_dqn.dump_to_checkpoint(
+            imposter_model.dump_to_checkpoint(
                 os.path.join(
-                    save_directory_path, f"imposter_dqn_{percent_progress}%.pt"
+                    save_directory_path, f"imposter_{imposter_model.model_type}_{percent_progress}%.pt"
                 )
             )
-            crew_dqn.dump_to_checkpoint(
-                os.path.join(save_directory_path, f"crew_dqn_{percent_progress}%.pt")
+            crew_model.dump_to_checkpoint(
+                os.path.join(save_directory_path, f"crew_{crew_model.model_type}_{percent_progress}%.pt")
             )
 
         # Update Target DQNs
         if t_total % 10_000 == 0:
-            imposter_target_dqn = copy.deepcopy(imposter_dqn)
-            crew_target_dqn = copy.deepcopy(crew_dqn)
+            # TODO: is this the best way to do this?
+            imposter_target_model = copy.deepcopy(imposter_model)
+            crew_target_model = copy.deepcopy(crew_model)
 
         # featurizing current trajectory
         featurizer.fit(replay_buffer.get_last_trajectory().states)
@@ -304,7 +283,7 @@ def train(
                 else:
                     agent_actions[agent_idx] = int(
                         torch.argmax(
-                            imposter_dqn(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
+                            imposter_model(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
                         )
                     )
 
@@ -315,7 +294,7 @@ def train(
                 else:
                     agent_actions[agent_idx] = int(
                         torch.argmax(
-                            crew_dqn(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
+                            crew_model(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
                         )
                     )
 
@@ -342,10 +321,10 @@ def train(
             step_losses = trainer.train_step(
                 batch=batch,
                 featurizer=featurizer,
-                imposter_dqn=imposter_dqn,
-                imposter_target_dqn=imposter_target_dqn,
-                crew_dqn=crew_dqn,
-                crew_target_dqn=crew_target_dqn,
+                imposter_model = imposter_model,
+                imposter_target_model=imposter_target_model,
+                crew_model=crew_model,
+                crew_target_model=crew_target_model,
             )
 
             losses.append(step_losses)
@@ -375,9 +354,9 @@ def train(
             t_episode += 1
 
     # saving final model states
-    imposter_dqn.dump_to_checkpoint(
+    imposter_model.dump_to_checkpoint(
         os.path.join(save_directory_path, f"imposter_dqn_100%.pt")
     )
-    crew_dqn.dump_to_checkpoint(os.path.join(save_directory_path, f"crew_dqn_100%.pt"))
+    crew_model.dump_to_checkpoint(os.path.join(save_directory_path, f"crew_dqn_100%.pt"))
 
     return info_list, returns, losses

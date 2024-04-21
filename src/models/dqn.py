@@ -1,12 +1,55 @@
 from typing import List
 import torch
 from torch import nn
-from enum import StrEnum
+from enum import StrEnum, auto
 
 from src.utils import calculate_cnn_output_dim
 
+class ModelType(StrEnum):
+    RANDOM = auto()
+    SPATIAL_DQN = auto()
 
-class RandomEquiprobable(nn.Module):
+    @staticmethod
+    def build(model_type: str, **kwargs):
+        assert model_type in [m.value for m in ModelType], f"Invalid model type: {model_type}"
+        if model_type == ModelType.RANDOM:
+            assert kwargs.get('pretrained_model_path', None) is None, "Random model does not support pretrained model"
+            return RandomEquiprobable(kwargs['n_actions'])
+        elif model_type == ModelType.SPATIAL_DQN:
+            if kwargs.get('pretrained_model_path', None) is not None:
+                return SpatialDQN.load_from_checkpoint(kwargs['pretrained_model_path'])
+            kwargs.pop('pretrained_model_path', None)
+            return SpatialDQN(**kwargs)
+
+
+class ActivationType(StrEnum):
+    RELU = "relu"
+    SIGMOID = "sigmoid"
+
+    def build(self):
+        if self == ActivationType.RELU:
+            return nn.ReLU()
+        elif self == ActivationType.SIGMOID:
+            return nn.Sigmoid()
+        else:
+            raise ValueError(f"Activation function {self} not supported")
+
+class Q_Estimator(nn.Module):
+    def __init__(self):
+        super(Q_Estimator, self).__init__()
+    
+    @property
+    def model_type(self):
+        raise NotImplementedError("model_type property not implemented")
+    
+    def dump_to_checkpoint(self, filepath):
+        raise NotImplementedError("dump_to_checkpoint method not implemented")
+
+    def load_from_checkpoint(self, filepath):
+        raise NotImplementedError("load_from_checkpoint method not implemented")
+
+
+class RandomEquiprobable(Q_Estimator):
     def __init__(self, n_outputs: int):
         super(RandomEquiprobable, self).__init__()
         self.n_outputs = n_outputs
@@ -21,25 +64,17 @@ class RandomEquiprobable(nn.Module):
         outputs[torch.arange(batch_size), random_indices] = 1
 
         return outputs
+    
+    @property
+    def model_type(self):
+        return ModelType.RANDOM
 
     def dump_to_checkpoint(model, filepath):
         pass
 
     def load_from_checkpoint(filepath):
-        return RandomEquiprobable()
+        raise NotImplementedError("load_from_checkpoint method not implemented")
 
-
-class ActivationType(StrEnum):
-    RELU = "relu"
-    SIGMOID = "sigmoid"
-
-    def build(self):
-        if self == ActivationType.RELU:
-            return nn.ReLU()
-        elif self == ActivationType.SIGMOID:
-            return nn.Sigmoid()
-        else:
-            raise ValueError(f"Activation function {self} not supported")
 
 
 class CNNModel(nn.Module):
@@ -94,7 +129,7 @@ class RNNModel(nn.Module):
         return self.model(x)  # (output, hidden state)
 
 
-class SpatialDQN(nn.Module):
+class SpatialDQN(Q_Estimator):
 
     def __init__(
         self,
@@ -162,6 +197,10 @@ class SpatialDQN(nn.Module):
         self.prediction_head = make_mlp(
             layer_dims=self.mlp_dims, activation_fn=ActivationType.RELU
         )
+
+    @property
+    def model_type(self):
+        return ModelType.SPATIAL_DQN
 
     def forward(self, spatial_x, non_spatial_x):
         # running through CNN

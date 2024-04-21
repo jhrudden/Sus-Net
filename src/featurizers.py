@@ -1,3 +1,4 @@
+from enum import StrEnum, auto
 from typing import Generator, List, Tuple
 import numpy as np
 import torch
@@ -21,6 +22,18 @@ Q4_mask = np.zeros((9, 9))
 Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
+
+class FeaturizerType(StrEnum):
+    PERPSECTIVE = auto()
+    GLOBAL = auto()
+
+    @staticmethod
+    def build(featurizer_type: str, env: FourRoomEnv):
+        assert featurizer_type in [f.value for f in FeaturizerType], f"Invalid featurizer type: {featurizer_type}"
+        if featurizer_type == FeaturizerType.PERPSECTIVE:
+            return PerspectiveFeaturizer(env=env)
+        elif featurizer_type == FeaturizerType.GLOBAL:
+            return GlobalFeaturizer(env=env)
 
 
 class StateSequenceFeaturizer(ABC):
