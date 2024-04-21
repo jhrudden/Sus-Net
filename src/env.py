@@ -215,6 +215,7 @@ class FourRoomEnv(Env):
         self.job_reward = job_reward
         self.time_step_reward = time_step_reward
         self.game_end_reward = game_end_reward
+        self.dead_penalty = dead_penalty
 
         self.job_positions = None
         self.agent_positions = None
