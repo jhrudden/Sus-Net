@@ -181,6 +181,7 @@ class FourRoomEnv(Env):
         job_reward=1,
         time_step_reward: int = 0,
         game_end_reward: int = 10,
+        dead_penalty: int = -2, # penalty for dead agents TAX THE DEAD!
         debug: bool = False,
     ):
         super().__init__()
@@ -585,6 +586,9 @@ Metrics:
         agent_rewards += team_reward
         # negate imposters rewards
         agent_rewards[: self.n_imposters] *= -1
+
+        # no reward for dead agents
+        agent_rewards[self.alive_agents == 0] = self.dead_penalty
         return agent_rewards
 
     def compute_state_dims(self, state_field: StateFields):
