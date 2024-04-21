@@ -587,6 +587,22 @@ Metrics:
         agent_rewards[: self.n_imposters] *= -1
         return agent_rewards
 
+    def compute_state_dims(self, state_field: StateFields):
+        """
+        Computes the dimensions of the state field specified by the input argument.
+        """
+        state_space = self.observation_space[state_field.value]
+
+        if isinstance(state_space, spaces.Box):
+            ndim = len(state_space.shape)
+            lo = state_space.low[0]
+            hi = state_space.high[0]
+            return torch.tensor([hi - lo] * ndim)
+        elif isinstance(state_space, spaces.MultiBinary):
+            return torch.tensor([state_space.n])
+        else:
+            raise ValueError(f"Invalid state field: {state_field}")
+
 
 class FourRoomEnvWithTagging(FourRoomEnv):
     def __init__(

@@ -38,6 +38,10 @@ class StateSequenceFeaturizer(ABC):
         self.env = env
         self.state_size = env.flattened_state_size
 
+    @property
+    def featurized_shape(self):
+        raise NotImplementedError("Need to implement featurized_shape property.")
+
     @abstractmethod
     def fit(self, state_sequence: torch.Tensor) -> None:
         """
@@ -87,6 +91,11 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
                 StateFieldFeaturizer(env=env, state_field=StateFields.JOB_STATUS),
             ]
         )
+    
+    @property
+    def featurized_shape(self):
+        non_spatial_shape = torch.sum(torch.stack([self.agent_non_sp_f.shape, self.global_non_sp_f.shape], axis=0), axis=0)
+        return self.sp_f.shape, non_spatial_shape
 
     def fit(self, state_sequence: torch.Tensor) -> None:
         assert (
@@ -194,6 +203,12 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
             ]
         )
 
+    @property
+    def featurized_shape(self):
+        non_sp_shape = self.non_spatial_features.shape
+        non_sp_shape[0] += self.env.n_agents
+        return self.spatial_features.shape, non_sp_shape
+
     def fit(self, state_sequence: torch.Tensor) -> None:
         assert (
             state_sequence.dim() == 3
@@ -237,24 +252,39 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
                 torch.cat([self.non_spatial.detach().clone(), agent_idx_tensor], dim=2),
             )
 
+class Featurizer(ABC):
+    """Extracts features from the environment state."""
+    def __init__(self, env: FourRoomEnv):
+        self.env = env
 
-class SpatialFeaturizer(ABC):
+    @abstractmethod
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+        """Extracts features from the environment state."""
+        raise NotImplementedError("Need to implement extract_features method.")
+    
+    @property
+    def shape(self) -> Tuple:
+        """Returns the shape of the features."""
+        raise NotImplementedError("Need to implement shape property.")
+
+
+class SpatialFeaturizer(Featurizer):
     """Returns a 3D Numpy array for the specific feacture."""
 
     def __init__(
         self,
         env,
     ):
-        self.env = env
-
-    @abstractmethod
-    def extract_features(agent_state: Tuple) -> np.array:
-        raise NotImplementedError("Need to implement extract features method.")
+        super().__init__(env=env)
 
     def get_blank_features(self, num_channels):
         return torch.zeros(
             (num_channels, self.env.n_cols, self.env.n_rows), dtype=torch.float32
         )
+
+    @property
+    def shape(self):
+        return torch.tensor([1, self.env.n_cols, self.env.n_rows], dtype=torch.int)
 
 
 class PositionFeaturizer(SpatialFeaturizer):
@@ -303,6 +333,10 @@ class AgentPositionsFeaturizer(PositionFeaturizer):
 
         return features
 
+    @property
+    def shape(self):
+        return torch.tensor([self.env.n_agents, self.env.n_cols, self.env.n_rows], dtype=torch.int)
+
 
 class JobFeaturizer(SpatialFeaturizer):
     """
@@ -323,21 +357,35 @@ class JobFeaturizer(SpatialFeaturizer):
             features[int(job_done), x, y] = 1
 
         return features
+    
+    @property
+    def shape(self):
+        return torch.tensor([2, self.env.n_cols, self.env.n_rows], dtype=torch.int)
 
 
-class CombineFeaturizer(SpatialFeaturizer):
+class CombineFeaturizer(Featurizer):
     """
-    Combines multiple Spatial featurizers into a single 3D array.
+    Combines featurizers into a single tensor.
     """
 
-    def __init__(self, featurizers: List[SpatialFeaturizer]):
+    def __init__(self, featurizers: List[Featurizer]):
+        shapes = [f.shape[1:] for f in featurizers]
+        assert all(
+            torch.all(shape.eq(shapes[0])) for shape in shapes
+        ), "All featurizers must have the same shape (ignoring the number of first dimension)."
         self.featurizers = featurizers
 
     def extract_features(self, agent_state: Tuple):
         return torch.cat(
             [f.extract_features(agent_state) for f in self.featurizers], axis=0
         )
-
+    
+    @property
+    def shape(self):
+        assert len(self.featurizers) > 0, "No featurizers provided."
+        shapes = torch.stack([f.shape for f in self.featurizers], axis=0)
+        last_dims = shapes[0, 1:]
+        return torch.tensor([shapes[:, 0].sum().item(), *last_dims], dtype=torch.int)
 
 class PartiallyObservableFeaturizer(CombineFeaturizer):
     """
@@ -370,22 +418,12 @@ class PartiallyObservableFeaturizer(CombineFeaturizer):
 
         return features
 
-
-class NonSpatialFeaturizer(ABC):
-    """Returns a 1D Numpy array for the specific feacture."""
-
-    def __init__(
-        self,
-        env,
-    ):
-        self.env = env
-
-    @abstractmethod
-    def extract_features(agent_state: Tuple) -> np.array:
-        raise NotImplementedError("Need to implement extract features method.")
+    @property
+    def shape(self):
+        raise NotImplementedError("Need to implement shape property.")
 
 
-class StateFieldFeaturizer(NonSpatialFeaturizer):
+class StateFieldFeaturizer(Featurizer):
 
     def __init__(
         self,
@@ -400,3 +438,7 @@ class StateFieldFeaturizer(NonSpatialFeaturizer):
             agent_state[self.env.state_fields[self.state_field]],
             dtype=torch.float32,
         )
+    
+    @property
+    def shape(self):
+        return self.env.compute_state_dims(self.state_field)
