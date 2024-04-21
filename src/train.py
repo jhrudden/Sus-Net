@@ -1,6 +1,7 @@
 from enum import StrEnum, auto
 import os
 import numpy as np
+import pygame
 import torch
 import torch.nn.functional as F
 import copy
@@ -9,9 +10,10 @@ import pathlib
 from src.scheduler import ExponentialSchedule
 from src.env import FourRoomEnv, StateFields
 from src.featurizers import StateSequenceFeaturizer, FeaturizerType
-from src.metrics import EpisodicMetricHandler
+from src.metrics import EpisodicMetricHandler, SusMetrics
 from src.replay_memory import FastReplayBuffer
 from src.models.dqn import ModelType, Q_Estimator
+from src.visualize import AmongUsVisualizer
 
 
 class OptimizerType(StrEnum):
@@ -198,7 +200,7 @@ def run_experiment(
     featurizer = FeaturizerType.build(featurizer_type, env=env)
 
     # run actual experiment
-    train(
+    all_metrics, _, __ = train(
         env=env,
         metrics=metrics,
         num_steps=num_steps,
@@ -222,6 +224,8 @@ def run_experiment(
     # run experiment
     if experiment_save_path is not None:
         metrics.save_metrics(save_file_path=experiment_save_path / "metrics.json")
+    
+    return all_metrics
 
 
 def train(
@@ -243,7 +247,6 @@ def train(
     returns = []
     game_lengths = []
     losses = []
-    info_list = []  # keep track of events during each episode
 
     # Initialize structures to store the models at different stages of training
     t_saves = np.linspace(0, num_steps, num_saves - 1, endpoint=False)
@@ -353,8 +356,17 @@ def train(
         # checking if the env needs to be reset
         if done or trunc:
 
+            imposter_return = G[env.imposter_mask].mean().item()
+            crew_return = G[~env.imposter_mask].mean().item()
+
+            info_with_returns = {
+                **info,
+                SusMetrics.AVG_IMPOSTER_RETURN: imposter_return,
+                SusMetrics.AVG_CREW_RETURN: crew_return,
+            }
+
             # update metrics
-            metrics.step(info)
+            metrics.step(info_with_returns)
 
             pbar.set_description(
                 f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Imposter Loss: {losses[-1][0]:4.2f} | Crew Loss: {losses[-1][1]:4.2f}"
@@ -382,4 +394,56 @@ def train(
         os.path.join(save_directory_path, f"crew_dqn_100%.pt")
     )
 
-    return info_list, returns, losses
+    return metrics.metrics, returns, losses
+
+def run_game(
+    env: FourRoomEnv,
+    imposter_model: Q_Estimator,
+    crew_model: Q_Estimator,
+    featurizer: StateSequenceFeaturizer,
+    sequence_length: int = 2,
+):
+     with AmongUsVisualizer(env) as visualizer:
+        state, _ = visualizer.reset()
+        replay_memory = FastReplayBuffer(1_000, 4, env.flattened_state_size, env.n_agents, env.n_imposters)
+        replay_memory.add_start(env.flatten_state(state), env.imposter_idxs)
+
+
+        stop_game = False
+        done = False
+        paused = False
+        while not stop_game:
+            for event in pygame.event.get():
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                    paused = not paused
+                if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                    stop_game = True
+                    break
+            
+            if not done and not paused:
+                state = replay_memory.get_last_trajectory().states
+                featurizer.fit(state)
+
+                actions = []
+
+                for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(featurizer.generator()):
+                    if agent_idx in env.imposter_idxs:
+                        action = imposter_model(agent_spatial, agent_non_spatial).argmax().item()
+                    else:
+                        action = crew_model(agent_spatial, agent_non_spatial).argmax().item()
+                    
+                    actions.append(action)
+                
+                next_state, reward, done, truncated, _ = visualizer.step(actions)
+
+                replay_memory.add(
+                    env.flatten_state(next_state), 
+                    actions,
+                    reward, 
+                    done, 
+                    env.imposter_idxs)
+            
+            pygame.time.wait(1000)
+        visualizer.close()
+
+        

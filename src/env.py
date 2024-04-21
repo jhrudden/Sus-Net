@@ -122,8 +122,8 @@ class FourRoomEnv(Env):
         n_jobs: int,
         is_action_order_random=True,
         random_state: Optional[int] = None,
-        kill_reward: int = -3,
-        job_reward=1,
+        kill_reward: int = -5,
+        job_reward=3,
         time_step_reward: int = 0,
         game_end_reward: int = 10,
         dead_penalty: int = -2, # penalty for dead agents TAX THE DEAD!
