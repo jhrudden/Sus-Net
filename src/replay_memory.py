@@ -58,6 +58,18 @@ class FastReplayBuffer:
         """
         self.add(state, -1, 0, False, imposters, is_start=True)
 
+    def add_terminal(self, state, imposters):
+        """
+        Add the dummy terminal state.
+
+        NOTE: fake action and reward are added to the buffer to maintain consistency
+
+        Parameters
+            - state (np.ndarray): Current (terminal) state
+            - imposters (np.ndarray): List of imposter indices
+        """
+        self.add(state, 0, 0, True, imposters, is_start=False, is_samplable=True)
+
     def add(
         self,
         state,
@@ -66,6 +78,7 @@ class FastReplayBuffer:
         done,
         imposters,
         is_start: bool = False,
+        is_samplable: bool = True,
     ):
         """Add a transition to the buffer.
         Parameters
@@ -93,7 +106,7 @@ class FastReplayBuffer:
         self.starts[self.idx] = torch.tensor(is_start)
         self.imposters[self.idx] = torch.tensor(imposters)
 
-        if not is_start:
+        if not is_start and is_samplable:
             self.trajectory_dict.insert(self.idx)
 
         # Circulate the pointer to the next position
@@ -147,8 +160,10 @@ class FastReplayBuffer:
             fill_condition = starts & neg & (i < self.trajectory_size - 1)
 
             if fill_condition.sum() > 0:
-                seq[fill_condition, i:] = new_idx[fill_condition].view(-1, 1).repeat(
-                    1, self.trajectory_size - i
+                seq[fill_condition, i:] = (
+                    new_idx[fill_condition]
+                    .view(-1, 1)
+                    .repeat(1, self.trajectory_size - i)
                 )
 
             if not torch.any(neg):
@@ -179,6 +194,7 @@ class FastReplayBuffer:
             episode_id += 1
             s, _ = env.reset()
             state = env.flatten_state(s)
+            self.add_start(state, imposters=env.imposter_idxs)
             done = False
             truncation = False
             start = True
@@ -191,5 +207,9 @@ class FastReplayBuffer:
                 state = next_state
                 step += 1
                 start = False
+
+                if done:
+                    self.add_terminal(next_state, imposters=env.imposter_idxs)
+
                 if step >= num_steps:
                     break

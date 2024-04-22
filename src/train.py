@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 import copy
 import tqdm
-import pathlib
 from src.scheduler import ExponentialSchedule
 from src.env import FourRoomEnv, StateFields
 from src.featurizers import StateSequenceFeaturizer, FeaturizerType
@@ -62,6 +61,11 @@ class DQNTeamTrainer:
             if opt is not None:
                 opt.zero_grad()
 
+        # for i, p in enumerate(imposter_model.cnn.parameters()):
+        #     if i == 0:
+        #         print("before ")
+        #         print(p.grad)
+
         featurizer.fit(batch.states)
 
         for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generator()):
@@ -69,6 +73,8 @@ class DQNTeamTrainer:
             # samples in which agnets is an imposter/crew member
             imposter_samples = (batch.imposters == agent_idx).view(-1)
             crew_samples = ~imposter_samples
+
+            # spatial.requires_grad = non_spatial.requires_grad = True
 
             # training via gradient accumulation
             for loss_idx, (
@@ -90,20 +96,47 @@ class DQNTeamTrainer:
                 if opt is not None and team_samples.sum() > 0:
                     team_model.train()
                     # compute the value of the actions taken by the agent (gradients are calculated here!)
+
+                    # print("imposters ", batch.imposters)
+
+                    # assert (
+                    #     spatial[batch.imposters[0], :-1, :, :, :]
+                    #     != spatial[batch.imposters[1], :-1, :, :, :]
+                    # )
+                    print("team samples: ", {team_samples})
+                    print("NON SPACIAL!!!")
+                    print(
+                        non_spatial[:, :-1, :],
+                    )
+
                     action_values = team_model(
                         spatial[team_samples, :-1, :, :, :],
                         non_spatial[team_samples, :-1, :],
                     )
-                    actions = torch.tensor(batch.actions[team_samples, -1, agent_idx])
+
+                    print("Action values")
+                    print(action_values)
+                    actions = torch.tensor(batch.actions[team_samples, -2, agent_idx])
+                    print("Actions form train step")
+                    print(actions)
+
                     values = torch.gather(
                         action_values, 1, actions.view(-1).unsqueeze(-1)
                     ).view(-1)
 
+                    print("Actions value")
+                    print(values)
+
                     with torch.no_grad():
-                        done_mask = torch.tensor(batch.dones[team_samples, -1]).view(-1)
+                        done_mask = batch.dones[team_samples, -2].view(-1)
+
                         rewards = torch.tensor(
                             batch.rewards[team_samples, -2, agent_idx]
                         ).view(-1)
+
+                        print(f"Bitch rewards: {rewards}")
+
+                        print(f"Bitch Dones: {done_mask}")
 
                         # calculate target values, no gradients here (notice the detach() calls
                         target_values = (
@@ -120,8 +153,12 @@ class DQNTeamTrainer:
                         target_values[done_mask] = rewards[done_mask]
 
                     loss = F.mse_loss(values, target_values)
-                    accumulated_losses[loss_idx] += loss.item()
                     loss.backward()
+                    accumulated_losses[loss_idx] += loss.item()
+
+        for i, p in enumerate(imposter_model.parameters()):
+            print("after ")
+            print(p.grad.sum())
 
         # use gradients to update models
         for opt in [self.imposter_optimizer, self.crew_optimizer]:
@@ -282,7 +319,7 @@ def train(
             )
 
         # Update Target DQNs
-        if t_total % 10_000 == 0:
+        if t_total % 1000 == 0:
             # TODO: is this the best way to do this?
             imposter_target_model = copy.deepcopy(imposter_model)
             crew_target_model = copy.deepcopy(crew_model)
@@ -295,33 +332,43 @@ def train(
         agent_actions = np.zeros(env.n_agents, dtype=np.int32)
         alive_agents = state[env.state_fields[StateFields.ALIVE_AGENTS]]
 
-        for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generator()):
+        with torch.no_grad():
+            for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generator()):
 
-            # choose action for alive imposter
-            if env.imposter_mask[agent_idx] and alive_agents[agent_idx]:
-                if np.random.random() <= eps:
-                    agent_actions[agent_idx] = np.random.randint(
-                        0, env.n_imposter_actions
+                # choose action for alive imposter
+                if env.imposter_mask[agent_idx] and alive_agents[agent_idx]:
+
+                    print(
+                        imposter_model(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
                     )
-                else:
-                    agent_actions[agent_idx] = int(
-                        torch.argmax(
-                            imposter_model(
-                                spatial[:, 1:, :, :, :], non_spatial[:, 1:, :]
+
+                    if np.random.random() <= eps:
+                        agent_actions[agent_idx] = np.random.randint(
+                            0, env.n_imposter_actions
+                        )
+                    else:
+                        agent_actions[agent_idx] = int(
+                            torch.argmax(
+                                imposter_model(
+                                    spatial[:, 1:, :, :, :], non_spatial[:, 1:, :]
+                                )
                             )
                         )
-                    )
 
-            # choose action for alive crew member
-            elif alive_agents[agent_idx]:
-                if np.random.random() <= eps:
-                    agent_actions[agent_idx] = np.random.randint(0, env.n_crew_actions)
-                else:
-                    agent_actions[agent_idx] = int(
-                        torch.argmax(
-                            crew_model(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
+                # choose action for alive crew member
+                elif alive_agents[agent_idx]:
+                    if np.random.random() <= eps:
+                        agent_actions[agent_idx] = np.random.randint(
+                            0, env.n_crew_actions
                         )
-                    )
+                    else:
+                        agent_actions[agent_idx] = int(
+                            torch.argmax(
+                                crew_model(
+                                    spatial[:, 1:, :, :, :], non_spatial[:, 1:, :]
+                                )
+                            )
+                        )
 
         next_state, reward, done, trunc, info = env.step(agent_actions=agent_actions)
         G = G * gamma + reward
@@ -352,6 +399,10 @@ def train(
             )
 
             losses.append(step_losses)
+
+        # padding terminal sequence with dummy time step
+        if done:
+            replay_buffer.add_terminal(env.flatten_state(next_state), env.imposter_idxs)
 
         # checking if the env needs to be reset
         if done or trunc:

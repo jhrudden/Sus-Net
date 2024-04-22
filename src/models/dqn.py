@@ -5,48 +5,91 @@ from enum import StrEnum, auto
 
 from src.utils import calculate_cnn_output_dim
 
+
 class ModelType(StrEnum):
     RANDOM = auto()
     SPATIAL_DQN = auto()
+    MLP = auto()
 
     @staticmethod
     def build(model_type: str, **kwargs):
-        assert model_type in [m.value for m in ModelType], f"Invalid model type: {model_type}"
+        assert model_type in [
+            m.value for m in ModelType
+        ], f"Invalid model type: {model_type}"
         if model_type == ModelType.RANDOM:
-            assert kwargs.get('pretrained_model_path', None) is None, "Random model does not support pretrained model"
-            return RandomEquiprobable(kwargs['n_actions'])
+            assert (
+                kwargs.get("pretrained_model_path", None) is None
+            ), "Random model does not support pretrained model"
+            return RandomEquiprobable(kwargs["n_actions"])
         elif model_type == ModelType.SPATIAL_DQN:
-            if kwargs.get('pretrained_model_path', None) is not None:
-                return SpatialDQN.load_from_checkpoint(kwargs['pretrained_model_path'])
-            kwargs.pop('pretrained_model_path', None)
+            if kwargs.get("pretrained_model_path", None) is not None:
+                return SpatialDQN.load_from_checkpoint(kwargs["pretrained_model_path"])
+            kwargs.pop("pretrained_model_path", None)
             return SpatialDQN(**kwargs)
+        elif model_type == ModelType.MLP:
+            if kwargs.get("pretrained_model_path", None) is not None:
+                return MLP.load_from_checkpoint(kwargs["pretrained_model_path"])
+            kwargs.pop("pretrained_model_path", None)
+            return MLP(**kwargs)
 
 
 class ActivationType(StrEnum):
     RELU = "relu"
     SIGMOID = "sigmoid"
+    PRELU = "prelu"
 
     def build(self):
         if self == ActivationType.RELU:
             return nn.ReLU()
+        if self == ActivationType.PRELU:
+            return nn.PReLU()
         elif self == ActivationType.SIGMOID:
             return nn.Sigmoid()
         else:
             raise ValueError(f"Activation function {self} not supported")
 
+
 class Q_Estimator(nn.Module):
     def __init__(self):
         super(Q_Estimator, self).__init__()
-    
+
     @property
     def model_type(self):
         raise NotImplementedError("model_type property not implemented")
-    
+
     def dump_to_checkpoint(self, filepath):
         raise NotImplementedError("dump_to_checkpoint method not implemented")
 
     def load_from_checkpoint(self, filepath):
         raise NotImplementedError("load_from_checkpoint method not implemented")
+
+
+class MLP(nn.Module):
+    def __init__(
+        self,
+        layer_dims,
+    ):
+        super(MLP, self).__init__()
+        self.layer_dims = layer_dims
+        self.model = make_mlp(layer_dims, activation_fn=ActivationType.PRELU)
+        self.config = {"layer_dims": layer_dims}
+
+    @property
+    def model_type(self):
+        return ModelType.MLP
+
+    def forward(self, spatial_x, non_spatial_x):
+        batch_size, timesteps, C, H, W = spatial_x.size()
+        x = torch.cat(
+            (spatial_x.view(batch_size, -1), non_spatial_x.view(batch_size, -1)), dim=1
+        )
+        out = self.model(x)
+        return out
+
+    def dump_to_checkpoint(model, filepath):
+        checkpoint = {"state_dict": model.state_dict(), "config": model.config}
+        torch.save(checkpoint, filepath)
+        print(f"Model checkpoint saved to {filepath}")
 
 
 class RandomEquiprobable(Q_Estimator):
@@ -64,7 +107,7 @@ class RandomEquiprobable(Q_Estimator):
         outputs[torch.arange(batch_size), random_indices] = 1
 
         return outputs
-    
+
     @property
     def model_type(self):
         return ModelType.RANDOM
@@ -74,7 +117,6 @@ class RandomEquiprobable(Q_Estimator):
 
     def load_from_checkpoint(filepath):
         raise NotImplementedError("load_from_checkpoint method not implemented")
-
 
 
 class CNNModel(nn.Module):
@@ -195,7 +237,7 @@ class SpatialDQN(Q_Estimator):
         self.n_actions = n_actions
         self.mlp_dims = [rnn_hidden_dim] + mlp_hidden_layer_dims + [n_actions]
         self.prediction_head = make_mlp(
-            layer_dims=self.mlp_dims, activation_fn=ActivationType.RELU
+            layer_dims=self.mlp_dims, activation_fn=ActivationType.PRELU
         )
 
     @property
@@ -203,15 +245,19 @@ class SpatialDQN(Q_Estimator):
         return ModelType.SPATIAL_DQN
 
     def forward(self, spatial_x, non_spatial_x):
+
         # running through CNN
         batch_size, timesteps, C, H, W = spatial_x.size()
         cnn_in = spatial_x.view(batch_size * timesteps, C, H, W)
         cnn_out = self.cnn(cnn_in)
         # Reshape the output for the RNN
 
+        print(f"CNN OUT SUM: {cnn_out.sum()}")
+
         cnn_out = cnn_out.view(batch_size, timesteps, -1)
         # appending non-spatial features
         rnn_in = torch.cat((cnn_out, non_spatial_x), dim=2)
+
         rnn_out, _ = self.rnn(rnn_in)
         # Use the last hidden state to predict with MLP
         mlp_in = rnn_out[:, -1, :]

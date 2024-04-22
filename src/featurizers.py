@@ -23,13 +23,16 @@ Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
+
 class FeaturizerType(StrEnum):
     PERPSECTIVE = auto()
     GLOBAL = auto()
 
     @staticmethod
     def build(featurizer_type: str, env: FourRoomEnv):
-        assert featurizer_type in [f.value for f in FeaturizerType], f"Invalid featurizer type: {featurizer_type}"
+        assert featurizer_type in [
+            f.value for f in FeaturizerType
+        ], f"Invalid featurizer type: {featurizer_type}"
         if featurizer_type == FeaturizerType.PERPSECTIVE:
             return PerspectiveFeaturizer(env=env)
         elif featurizer_type == FeaturizerType.GLOBAL:
@@ -187,14 +190,20 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
                 [
                     agent_non_spatial_rep[:, :, :, agents]
                     .detach()
-                    .clone().requires_grad_(True)
+                    .clone()
                     .view(self.B, self.T, -1),
                     global_non_spatial_rep,
                 ],
                 dim=2,
             )
 
-            yield (spatial_rep[:, :, channel_order, :, :].detach().clone().requires_grad_(True), non_spatial)
+            yield (
+                spatial_rep[:, :, channel_order, :, :]
+                .detach()
+                .clone()
+                .requires_grad_(True),
+                non_spatial.requires_grad_(True),
+            )
 
 
 class GlobalFeaturizer(StateSequenceFeaturizer):
@@ -271,8 +280,10 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
             agent_idx_tensor[:, :, agent_idx] = 1
 
             yield (
-                self.spatial.detach().clone(),
-                torch.cat([self.non_spatial.detach().clone(), agent_idx_tensor], dim=2),
+                self.spatial.detach().clone().requires_grad_(True),
+                torch.cat(
+                    [self.non_spatial.detach().clone(), agent_idx_tensor], dim=2
+                ).requires_grad_(True),
             )
 
 
