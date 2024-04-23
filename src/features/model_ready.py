@@ -4,7 +4,7 @@ from typing import List, Tuple
 import torch
 
 from src.features.component import AgentPositionsFeaturizer, CompositeFeaturizer, JobFeaturizer, StateFieldFeaturizer
-from src.env.base import FourRoomEnv, StateFields
+from src.environment.base import FourRoomEnv, StateFields
 
 class FeaturizerType(StrEnum):
     PERPSECTIVE = auto()

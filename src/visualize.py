@@ -6,7 +6,7 @@ import pygame
 import pathlib
 
 from src.features.model_ready import SequenceStateFeaturizer
-from src.env import FourRoomEnv
+from src.environment import FourRoomEnv
 
 ASSETS_PATH = pathlib.Path(__file__).parent.parent / "assets"
 

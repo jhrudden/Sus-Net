@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import copy
 import tqdm
 from src.scheduler import ExponentialSchedule
-from src.env import FourRoomEnv, StateFields
+from src.environment import FourRoomEnv, StateFields
 from src.features.model_ready import SequenceStateFeaturizer, FeaturizerType
 from src.metrics import EpisodicMetricHandler, SusMetrics
 from src.replay_memory import ReplayBuffer

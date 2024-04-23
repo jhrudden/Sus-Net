@@ -2,7 +2,7 @@ from typing import List, Tuple
 import numpy as np
 import torch
 
-from src.env import FourRoomEnv, StateFields
+from src.environment import FourRoomEnv, StateFields
 from abc import ABC, abstractmethod
 
 Q1_mask = np.zeros((9, 9))
@@ -153,7 +153,6 @@ class CompositeFeaturizer(ComponentFeaturizer):
         shapes = torch.stack([f.shape for f in self.featurizers], axis=0)
         last_dims = shapes[0, 1:]
         return torch.tensor([shapes[:, 0].sum().item(), *last_dims], dtype=torch.int)
-
 
 class PartiallyObservableFeaturizer(CompositeFeaturizer):
     """
