@@ -19,6 +19,8 @@ class ReplayBuffer:
         n_agents: int,
         n_imposters: int,
     ):
+
+        print("STATE SIZE ", state_size)
         assert max_size > 0, "Replay buffer size must be positive"
         assert trajectory_size > 0, "Trajectory size must be positive"
         assert state_size > 0, "State size must be positive"

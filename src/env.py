@@ -623,33 +623,6 @@ class ImposterTrainingGround(FourRoomEnv):
     def _validate_init_args(self, n_imposters, n_crew, n_jobs):
         assert n_crew > 0, f"Must have at least one crew member. Got {n_crew}."
 
-    def step(self, imposter_action):
-        """
-        Processes the imposter's action and generates actions for the crew members.
-
-        Parameters:
-            imposter_action (int or list): The action chosen by the imposter.
-
-        Returns:
-            tuple: Contains the new state, imposter's reward, and game termination status.
-        """
-
-        # convert a list to an integer if a list of action is provided
-        if isinstance(imposter_action, list):
-            assert len(imposter_action == 1)
-            imposter_action = imposter_action[0]
-
-        # generate random equiprobable actions for crew memebrs
-        agent_actions = np.random.randint(0, self.n_crew_actions, size=self.n_agents)
-        # fill in the imposter action
-        agent_actions[self.imposter_idxs[0]] = imposter_action
-
-        # calling super step method and only returning the imposter reward
-        next_state, rewards, done, trunc, metrics = super().step(agent_actions)
-        reward = rewards[self.imposter_idxs[0]]
-
-        return next_state, [reward], done, trunc, metrics
-
     def check_win_condition(self):
         """
                 Checks if the game has reached a win condition for the imposter or the crew.
@@ -668,9 +641,6 @@ class ImposterTrainingGround(FourRoomEnv):
             return True, -1 * self.game_end_reward
 
         return False, 0
-
-    def sample_actions(self):
-        return np.random.choice(len(self.agent_action_map[self.imposter_idxs[0]]))
 
 
 class FourRoomEnvWithTagging(FourRoomEnv):
