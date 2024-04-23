@@ -22,7 +22,6 @@ TODO:
 """
 
 
-
 # TODO: move this logging file etc.
 def configure_logging(name="SUSSY_ENV", debug=False):
     logger = logging.getLogger(name)
@@ -126,7 +125,7 @@ class FourRoomEnv(Env):
         job_reward=3,
         time_step_reward: int = 0,
         game_end_reward: int = 10,
-        dead_penalty: int = -2, # penalty for dead agents TAX THE DEAD!
+        dead_penalty: int = -2,  # penalty for dead agents TAX THE DEAD!
         debug: bool = False,
     ):
         super().__init__()
@@ -403,7 +402,10 @@ class FourRoomEnv(Env):
         # TODO: Check if all jobs are completed
         done = False
         reward = 0
-        if np.sum(self.alive_agents[self.imposter_mask]) == 0 or np.sum(self.completed_jobs) == self.n_jobs:
+        if (
+            np.sum(self.alive_agents[self.imposter_mask]) == 0
+            or np.sum(self.completed_jobs) == self.n_jobs
+        ):
             self.logger.debug("CREW won!")
             self.metrics.update(SusMetrics.CREW_WON, 1)
             done = True
@@ -552,6 +554,60 @@ Metrics:
             return torch.tensor([state_space.n])
         else:
             raise ValueError(f"Invalid state field: {state_field}")
+
+    def compute_action(self, agent_idx, action_idx):
+        return str(Action(action_idx))
+
+
+class ImposterTrainingGround(FourRoomEnv):
+    """
+    Environment used to train an imposter to act against random, equiprobable crew members.
+    """
+
+    def __init__(
+        self,
+        n_crew,
+        n_jobs,
+        time_step_reward,
+        kill_reward,
+        sabotage_reward,
+        end_of_game_reward,
+        random_state=None,
+        debug=False,
+    ):
+        super().__init__(
+            n_imposters=1,
+            n_crew=n_crew,
+            n_jobs=n_jobs,
+            timestep_reward=time_step_reward,
+            kill_reward=kill_reward,
+            job_reward=sabotage_reward,
+            debug=debug,
+            dead_penalty=0,
+            game_end_reward=end_of_game_reward,
+            random_state=random_state,
+            is_action_order_random=False,
+        )
+
+    def step(self, imposter_action):
+
+        # convert a list to an integer if a list of action is provided
+        if isinstance(imposter_action, list):
+            assert len(imposter_action == 1)
+            imposter_action = imposter_action[0]
+
+        # generate random equiprobable actions for crew memebrs
+        agent_actions = np.random.randint(
+            0, len(self.imposter_actions), size=self.n_agents
+        )
+        # fill in the imposter action
+        agent_actions[self.imposter_idxs[0]] = imposter_action
+
+        # calling super step method and only returning the imposter reward
+        next_state, rewards, done, trunc, metrics = super.step(agent_actions)
+        reward = rewards[self.imposter_idxs[0]]
+
+        return next_state, reward, done, trunc, metrics
 
 
 class FourRoomEnvWithTagging(FourRoomEnv):
@@ -782,11 +838,11 @@ New Game Started!
         self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
         self.tag_reset_timer = 0
         self.logger.debug("Tagging state reset!")
-    
+
     def compute_action(self, agent_idx, action_idx):
         if action_idx < len(Action):
             return str(Action(action_idx))
         else:
             players = np.arange(self.n_agents)
             player = players[players != agent_idx][action_idx - len(Action)]
-            return f'Vote Player {player}'
+            return f"Vote Player {player}"
