@@ -1,11 +1,11 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Set
 import pygame
 import pathlib
 
-from src.featurizers import StateSequenceFeaturizer
+from src.features.model_ready import SequenceStateFeaturizer
 from src.env import FourRoomEnv
 
 ASSETS_PATH = pathlib.Path(__file__).parent.parent / "assets"
@@ -304,7 +304,7 @@ class AmongUsVisualizer:
 
 
 class StateSequenceVisualizer:
-    def __init__(self, featurizer: StateSequenceFeaturizer, cmap="Blues"):
+    def __init__(self, featurizer: SequenceStateFeaturizer, cmap="Blues"):
         # TODO: revisit giving imposter_positions to constructor, this is a hack
         self.featurizer = featurizer
         self.cmap = cmap

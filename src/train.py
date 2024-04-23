@@ -8,7 +8,7 @@ import copy
 import tqdm
 from src.scheduler import ExponentialSchedule
 from src.env import FourRoomEnv, StateFields
-from src.featurizers import StateSequenceFeaturizer, FeaturizerType
+from src.features.model_ready import SequenceStateFeaturizer, FeaturizerType
 from src.metrics import EpisodicMetricHandler, SusMetrics
 from src.replay_memory import ReplayBuffer
 from src.models.dqn import ModelType, Q_Estimator
@@ -62,10 +62,10 @@ class DQNTeamTrainer:
                 opt.zero_grad()
 
         featurizer.fit(batch.states)
-        featurized_state = featurizer.get_featurized_state()
+        featurized_state = featurizer.generate_featurized_states()
 
         featurizer.fit(batch.next_states)
-        featurized_next_state = featurizer.get_featurized_state()
+        featurized_next_state = featurizer.generate_featurized_states()
 
         for agent_idx, (state_feat, next_state_feat) in enumerate(zip(featurized_state, featurized_next_state)):
 
@@ -244,7 +244,7 @@ def train(
     metrics: EpisodicMetricHandler,
     num_steps: int,
     replay_buffer: ReplayBuffer,
-    featurizer: StateSequenceFeaturizer,
+    featurizer: SequenceStateFeaturizer,
     imposter_model: Q_Estimator,
     crew_model: Q_Estimator,
     scheduler: ExponentialSchedule,
@@ -308,7 +308,7 @@ def train(
         alive_agents = state[env.state_fields[StateFields.ALIVE_AGENTS]]
 
         with torch.no_grad():
-            for agent_idx, (spatial, non_spatial) in enumerate(featurizer.get_featurized_state()):
+            for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generate_featurized_states()):
 
                 # choose action for alive imposter
                 if env.imposter_mask[agent_idx] and alive_agents[agent_idx]:
@@ -425,7 +425,7 @@ def run_game(
     env: FourRoomEnv,
     imposter_model: Q_Estimator,
     crew_model: Q_Estimator,
-    featurizer: StateSequenceFeaturizer,
+    featurizer: SequenceStateFeaturizer,
     sequence_length: int = 2,
 ):
      with AmongUsVisualizer(env) as visualizer:
@@ -456,7 +456,7 @@ def run_game(
                 featurizer.fit(state_sequence=torch.tensor(state_sequence).unsqueeze(0))
                 actions = []
 
-                for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(featurizer.get_featurized_state()):
+                for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(featurizer.generate_featurized_states()):
                     if agent_idx in env.imposter_idxs:
                         action_probs = imposter_model(agent_spatial, agent_non_spatial)
                         action = action_probs.argmax().item()
