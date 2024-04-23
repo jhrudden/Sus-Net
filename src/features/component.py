@@ -16,6 +16,7 @@ Q4_mask[5:, :5] = 1.0
 
 ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 
+
 class ComponentFeaturizer(ABC):
     """Extracts features from the environment state."""
 
@@ -154,12 +155,15 @@ class CompositeFeaturizer(ComponentFeaturizer):
         last_dims = shapes[0, 1:]
         return torch.tensor([shapes[:, 0].sum().item(), *last_dims], dtype=torch.int)
 
+
 class PartiallyObservableFeaturizer(CompositeFeaturizer):
     """
     Zeros everything that is not visible to the agent.
     """
 
-    def __init__(self, featurizers: List[BaseSpatialFeaturizer], add_obs_mask_feature=True):
+    def __init__(
+        self, featurizers: List[BaseSpatialFeaturizer], add_obs_mask_feature=True
+    ):
         super().__init__(featurizers=featurizers)
         self.add_obs_mask_feature = add_obs_mask_feature
 
@@ -209,3 +213,29 @@ class StateFieldFeaturizer(ComponentFeaturizer):
     @property
     def shape(self):
         return self.env.compute_state_dims(self.state_field)
+
+
+class OneHotAgentPositionFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+
+        agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+        one_hot_positions = torch.zeros(
+            self.env.n_agents, self.env.n_cols + self.env.n_rows
+        )
+
+        for agent_idx, pos in enumerate(agent_positions):
+            one_hot_positions[agent_idx, pos[0]] = 1
+            one_hot_positions[agent_idx, self.env.n_cols + pos[1]] = 1
+
+        return one_hot_positions.view(-1)
+
+    @property
+    def shape(self) -> torch.tensor:
+
+        return torch.tensor(
+            [self.env.n_agents * (self.env.n_cols + self.env.n_rows)], dtype=torch.int
+        )
