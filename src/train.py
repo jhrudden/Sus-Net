@@ -67,7 +67,9 @@ class DQNTeamTrainer:
         featurizer.fit(batch.next_states)
         featurized_next_state = featurizer.generate_featurized_states()
 
-        for agent_idx, (state_feat, next_state_feat) in enumerate(zip(featurized_state, featurized_next_state)):
+        for agent_idx, (state_feat, next_state_feat) in enumerate(
+            zip(featurized_state, featurized_next_state)
+        ):
 
             # samples in which agnets is an imposter/crew member
             imposter_samples = (batch.imposters == agent_idx).view(-1)
@@ -103,9 +105,9 @@ class DQNTeamTrainer:
 
                     actions = torch.tensor(batch.actions[team_samples, agent_idx])
 
-                    values = torch.gather(
-                        action_values, 1, actions.view(-1, 1)
-                    ).view(-1)
+                    values = torch.gather(action_values, 1, actions.view(-1, 1)).view(
+                        -1
+                    )
 
                     with torch.no_grad():
                         done_mask = batch.dones[team_samples].view(-1)
@@ -113,7 +115,6 @@ class DQNTeamTrainer:
                         rewards = torch.tensor(
                             batch.rewards[team_samples, agent_idx]
                         ).view(-1)
-
 
                         # calculate target values, no gradients here (notice the detach() calls
                         target_values = (
@@ -133,11 +134,12 @@ class DQNTeamTrainer:
                     loss.backward()
                     accumulated_losses[loss_idx] += loss.item()
 
+                    opt.step()
 
         # use gradients to update models
-        for opt in [self.imposter_optimizer, self.crew_optimizer]:
-            if opt is not None:
-                opt.step()
+        # for opt in [self.imposter_optimizer, self.crew_optimizer]:
+        #     if opt is not None:
+        #         opt.step()
         return accumulated_losses
 
 
@@ -235,7 +237,7 @@ def run_experiment(
     # run experiment
     if experiment_save_path is not None:
         metrics.save_metrics(save_file_path=experiment_save_path / "metrics.json")
-    
+
     return all_metrics, losses
 
 
@@ -269,7 +271,9 @@ def train(
 
     state_sequence = np.zeros((replay_buffer.trajectory_size, replay_buffer.state_size))
     for i in range(replay_buffer.trajectory_size):
-        state_sequence[i] = env.flatten_state(state) # Initialize sequence with current state
+        state_sequence[i] = env.flatten_state(
+            state
+        )  # Initialize sequence with current state
 
     G = torch.zeros(env.n_agents)
 
@@ -300,7 +304,9 @@ def train(
             crew_target_model = copy.deepcopy(crew_model)
 
         # featurizing current trajectory
-        featurizer.fit(torch.tensor(state_sequence).unsqueeze(0)) # add batch dimension to state_sequence (features expect a batch dimension)
+        featurizer.fit(
+            torch.tensor(state_sequence).unsqueeze(0)
+        )  # add batch dimension to state_sequence (features expect a batch dimension)
 
         # getting next action
         eps = scheduler.value(t_total)
@@ -308,11 +314,12 @@ def train(
         alive_agents = state[env.state_fields[StateFields.ALIVE_AGENTS]]
 
         with torch.no_grad():
-            for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generate_featurized_states()):
+            for agent_idx, (spatial, non_spatial) in enumerate(
+                featurizer.generate_featurized_states()
+            ):
 
                 # choose action for alive imposter
                 if env.imposter_mask[agent_idx] and alive_agents[agent_idx]:
-
 
                     if np.random.random() <= eps:
                         agent_actions[agent_idx] = np.random.randint(
@@ -320,11 +327,7 @@ def train(
                         )
                     else:
                         agent_actions[agent_idx] = int(
-                            torch.argmax(
-                                imposter_model(
-                                    spatial, non_spatial
-                                )
-                            )
+                            torch.argmax(imposter_model(spatial, non_spatial))
                         )
 
                 # choose action for alive crew member
@@ -335,17 +338,13 @@ def train(
                         )
                     else:
                         agent_actions[agent_idx] = int(
-                            torch.argmax(
-                                crew_model(
-                                    spatial, non_spatial
-                                )
-                            )
+                            torch.argmax(crew_model(spatial, non_spatial))
                         )
 
         next_state, reward, done, trunc, info = env.step(agent_actions=agent_actions)
         G = G * gamma + reward
 
-        next_state_sequence =  np.roll(state_sequence.copy(), -1, axis=0)
+        next_state_sequence = np.roll(state_sequence.copy(), -1, axis=0)
         next_state_sequence[-1] = env.flatten_state(next_state)
 
         # adding the timestep to replay buffer
@@ -402,7 +401,9 @@ def train(
             i_episode += 1
 
             state, _ = env.reset()
-            state_sequence = np.zeros((replay_buffer.trajectory_size, replay_buffer.state_size))
+            state_sequence = np.zeros(
+                (replay_buffer.trajectory_size, replay_buffer.state_size)
+            )
             for i in range(replay_buffer.trajectory_size):
                 state_sequence[i] = env.flatten_state(state)
 
@@ -413,13 +414,16 @@ def train(
 
     # saving final model states
     imposter_model.dump_to_checkpoint(
-        os.path.join(save_directory_path, f"imposter_{imposter_model.model_type}_100%.pt")
+        os.path.join(
+            save_directory_path, f"imposter_{imposter_model.model_type}_100%.pt"
+        )
     )
     crew_model.dump_to_checkpoint(
         os.path.join(save_directory_path, f"crew_{crew_model.model_type}_100%.pt")
     )
 
-    return metrics.metrics,losses
+    return metrics.metrics, losses
+
 
 def run_game(
     env: FourRoomEnv,
@@ -428,7 +432,7 @@ def run_game(
     featurizer: SequenceStateFeaturizer,
     sequence_length: int = 2,
 ):
-     with AmongUsVisualizer(env) as visualizer:
+    with AmongUsVisualizer(env) as visualizer:
         state, _ = visualizer.reset()
         replay_memory = ReplayBuffer(
             max_size=10_000,
@@ -437,7 +441,9 @@ def run_game(
             n_imposters=env.n_imposters,
             n_agents=env.n_agents,
         )
-        state_sequence = np.zeros((replay_memory.trajectory_size, replay_memory.state_size))
+        state_sequence = np.zeros(
+            (replay_memory.trajectory_size, replay_memory.state_size)
+        )
         for i in range(replay_memory.trajectory_size):
             state_sequence[i] = env.flatten_state(state)
 
@@ -448,23 +454,29 @@ def run_game(
             for event in pygame.event.get():
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                     paused = not paused
-                if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                if event.type == pygame.QUIT or (
+                    event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
+                ):
                     stop_game = True
                     break
-            
+
             if not done and not paused:
                 featurizer.fit(state_sequence=torch.tensor(state_sequence).unsqueeze(0))
                 actions = []
 
-                for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(featurizer.generate_featurized_states()):
+                for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(
+                    featurizer.generate_featurized_states()
+                ):
                     if agent_idx in env.imposter_idxs:
                         action_probs = imposter_model(agent_spatial, agent_non_spatial)
                         action = action_probs.argmax().item()
                     else:
-                        action = crew_model(agent_spatial, agent_non_spatial).argmax().item()
-                    
+                        action = (
+                            crew_model(agent_spatial, agent_non_spatial).argmax().item()
+                        )
+
                     actions.append(action)
-                
+
                 next_state, reward, done, truncated, _ = visualizer.step(actions)
 
                 next_state_sequence = np.roll(state_sequence.copy(), -1, axis=0)
@@ -476,13 +488,11 @@ def run_game(
                     reward=reward,
                     done=done,
                     next_state=next_state_sequence,
-                    imposters=env.imposter_idxs
+                    imposters=env.imposter_idxs,
                 )
 
                 state = next_state
                 state_sequence = next_state_sequence
-            
+
             pygame.time.wait(1000)
         visualizer.close()
-
-        

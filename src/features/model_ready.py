@@ -6,6 +6,7 @@ import torch
 from src.features.component import (
     AgentPositionsFeaturizer,
     CompositeFeaturizer,
+    DistanceToImposterFeaturizer,
     JobFeaturizer,
     StateFieldFeaturizer,
     OneHotAgentPositionFeaturizer,
@@ -307,7 +308,12 @@ class FlatFeaturizer(SequenceStateFeaturizer):
 
     def __init__(self, env: FourRoomEnv):
         super().__init__(env)
-        self.featurizer = CompositeFeaturizer([OneHotAgentPositionFeaturizer(env=env)])
+        self.featurizer = CompositeFeaturizer(
+            [
+                OneHotAgentPositionFeaturizer(env=env),
+                DistanceToImposterFeaturizer(env=env),
+            ]
+        )
 
     @property
     def featurized_shape(self):

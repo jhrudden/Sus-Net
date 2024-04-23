@@ -239,3 +239,29 @@ class OneHotAgentPositionFeaturizer(ComponentFeaturizer):
         return torch.tensor(
             [self.env.n_agents * (self.env.n_cols + self.env.n_rows)], dtype=torch.int
         )
+
+
+class DistanceToImposterFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+
+        agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+        imposter_diastances = torch.zeros((self.env.n_agents - 1) * 2)
+
+        # NOTE: ONLY IF IMPOSTER IN 0th IDX
+        imposter_x, imposter_y = agent_positions[0]
+
+        for agent_idx, pos in enumerate(agent_positions):
+            if agent_idx != 0:
+                imposter_diastances[(agent_idx - 1) * 2] = pos[0] - imposter_x
+                imposter_diastances[(agent_idx - 1) * 2 + 1] = pos[1] - imposter_y
+
+        return imposter_diastances.view(-1)
+
+    @property
+    def shape(self) -> torch.tensor:
+
+        return torch.tensor([(self.env.n_agents - 1) * 2], dtype=torch.int)
