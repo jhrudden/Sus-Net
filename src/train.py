@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import copy
 import tqdm
 from src.scheduler import ExponentialSchedule
-from src.env import FourRoomEnv, StateFields, FourRoomEnvWithTagging
+from src.env import FourRoomEnv, StateFields
 from src.featurizers import StateSequenceFeaturizer, FeaturizerType
 from src.metrics import EpisodicMetricHandler, SusMetrics
 from src.replay_memory import ReplayBuffer
@@ -422,7 +422,7 @@ def train(
     return metrics.metrics,losses
 
 def run_game(
-    env: FourRoomEnvWithTagging,
+    env: FourRoomEnv,
     imposter_model: Q_Estimator,
     crew_model: Q_Estimator,
     featurizer: StateSequenceFeaturizer,

@@ -6,7 +6,7 @@ import pygame
 import pathlib
 
 from src.featurizers import StateSequenceFeaturizer
-from src.env import FourRoomEnvWithTagging
+from src.env import FourRoomEnv
 
 ASSETS_PATH = pathlib.Path(__file__).parent.parent / "assets"
 
@@ -29,7 +29,7 @@ GAME_PADDING = 50
 
 
 class AmongUsVisualizer:
-    def __init__(self, env: FourRoomEnvWithTagging):
+    def __init__(self, env: FourRoomEnv):
         assert env.n_cols == env.n_rows, "Only square grids are supported"
 
         self.env = env
