@@ -49,9 +49,9 @@ class AgentTypes(Enum):
 
 class StateFields(Enum):
     AGENT_POSITIONS = 0
-    JOB_POSITIONS = 1
-    JOB_STATUS = 2
-    ALIVE_AGENTS = 3
+    ALIVE_AGENTS = 1
+    JOB_POSITIONS = 2
+    JOB_STATUS = 3
     USED_TAGS = 4
     TAG_COUNTS = 5
     TAG_RESET_COUNT = 6
@@ -214,6 +214,7 @@ class FourRoomEnv(Env):
                 spaces.Box(
                     low=0, high=self.n_rows, shape=(self.n_agents, 2), dtype=int
                 ),  # Agent positions
+                spaces.MultiBinary(self.n_agents),  # Alive agents
                 *(
                     [
                         spaces.Box(
@@ -224,7 +225,6 @@ class FourRoomEnv(Env):
                     if self.n_jobs > 0
                     else []
                 ),  # Completed jobs
-                spaces.MultiBinary(self.n_agents),  # Alive agents
             )
         )
 
@@ -315,9 +315,11 @@ class FourRoomEnv(Env):
         return (
             (
                 self.agent_positions,
-                self.job_positions,
-                self.completed_jobs,
                 self.alive_agents,
+                *(
+                    [self.job_positions, self.completed_jobs]
+                    if self.n_jobs > 0 else []
+                ),
             ),
             self.metrics.get_metrics(),
         )
@@ -388,9 +390,11 @@ class FourRoomEnv(Env):
         return (
             (
                 self.agent_positions,
-                self.job_positions,
-                self.completed_jobs,
                 self.alive_agents,
+                *(
+                    [self.job_positions, self.completed_jobs]
+                    if self.n_jobs > 0 else []
+                ),
             ),
             self.agent_rewards,
             done,
@@ -681,11 +685,11 @@ class FourRoomEnvWithTagging(FourRoomEnv):
                 spaces.Box(
                     low=0, high=self.n_rows, shape=(self.n_agents, 2), dtype=int
                 ),  # Agent positions
+                spaces.MultiBinary(self.n_agents),  # Alive agents
                 spaces.Box(
                     low=0, high=self.n_rows, shape=(self.n_jobs, 2), dtype=int
                 ),  # Job positions
                 spaces.MultiBinary(self.n_jobs),  # Completed jobs
-                spaces.MultiBinary(self.n_agents),  # Alive agents
                 spaces.MultiBinary(self.n_agents),  # Who has used their tag
                 spaces.Box(
                     low=0, high=self.n_agents, shape=(self.n_agents,), dtype=int
@@ -852,9 +856,9 @@ New Game Started!
         return (
             (
                 self.agent_positions,
+                self.alive_agents,
                 self.job_positions,
                 self.completed_jobs,
-                self.alive_agents,
                 self.used_tag_actions,  # Who has used their tag
                 self.tag_counts,  # Tag counts
                 self.tag_reset_interval
