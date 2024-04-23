@@ -27,6 +27,7 @@ ROOM_MASKS = [Q1_mask, Q2_mask, Q3_mask, Q4_mask]
 class FeaturizerType(StrEnum):
     PERPSECTIVE = auto()
     GLOBAL = auto()
+    FLAT = auto()
 
     @staticmethod
     def build(featurizer_type: str, env: FourRoomEnv):
@@ -37,6 +38,8 @@ class FeaturizerType(StrEnum):
             return PerspectiveFeaturizer(env=env)
         elif featurizer_type == FeaturizerType.GLOBAL:
             return GlobalFeaturizer(env=env)
+        elif featurizer_type == FeaturizerType.FLAT:
+            return FlatFeaturizer(env=env)
 
 
 class StateSequenceFeaturizer(ABC):
@@ -286,13 +289,49 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
             agent_idx_tensor[:, :, agent_idx] = 1
 
             featurized.append(
+                (
                 self.spatial.detach().clone().requires_grad_(True),
                 torch.cat(
                     [self.non_spatial.detach().clone(), agent_idx_tensor], dim=2
-                ).requires_grad_(True),
+                ).requires_grad_(True)
+                )
             )
         
         return featurized
+    
+
+class FlatFeaturizer(StateSequenceFeaturizer):
+    """
+    Quite simple, just return the flattened state.
+    """
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+    
+    @property
+    def featurized_shape(self):
+        return self.env.flattened_state_size, self.env.flattened_state_size # current returning zeros for spatial features (this is a hack, need to fix this)
+
+    def fit(self, state_sequence: torch.Tensor) -> None:
+        assert (
+            state_sequence.dim() == 3
+        ), f"Expected 3D tensor. Got: {state_sequence.dim()}"
+
+        self.B, self.T, _ = state_sequence.size()
+        self.featurized_state = state_sequence.view(self.B, self.T, -1)
+    
+    def get_featurized_state(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
+        featurized = []
+        for agent_idx in range(self.env.n_agents):
+            featurized.append(
+                (
+                torch.zeros(self.B, self.T, 1).requires_grad_(True),
+                self.featurized_state.detach().clone().requires_grad_(True)
+                )
+            )
+        
+        return featurized
+
+
 
 
 class Featurizer(ABC):
