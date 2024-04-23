@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Optional, Tuple, Dict
 import numpy as np
 from gymnasium import Env, spaces
+from gymnasium.envs.registration import register
 import torch
 import logging
 
@@ -129,6 +130,7 @@ class FourRoomEnv(Env):
         dead_penalty: int = -2,  # penalty for dead agents TAX THE DEAD!
         shuffle_imposter_index: bool = True,
         debug: bool = False,
+        max_time_steps=1000,
     ):
         super().__init__()
 
@@ -164,6 +166,8 @@ class FourRoomEnv(Env):
         self.game_end_reward = game_end_reward
         self.dead_penalty = dead_penalty
         self.shuffle_imposter_index = shuffle_imposter_index
+        self.max_time_steps = max_time_steps
+        self.t = None
 
         self.job_positions = None
         self.agent_positions = None
@@ -312,14 +316,14 @@ class FourRoomEnv(Env):
         for imposter_idx in self.imposter_idxs:
             self.agent_action_map[imposter_idx] = self.imposter_actions.copy()
 
+        # initializing timestep
+        self.t = 0
+
         return (
             (
                 self.agent_positions,
                 self.alive_agents,
-                *(
-                    [self.job_positions, self.completed_jobs]
-                    if self.n_jobs > 0 else []
-                ),
+                *([self.job_positions, self.completed_jobs] if self.n_jobs > 0 else []),
             ),
             self.metrics.get_metrics(),
         )
@@ -387,14 +391,16 @@ class FourRoomEnv(Env):
 
         self.agent_rewards = self._merge_rewards(self.agent_rewards, team_reward)
 
+        if self.t == self.max_time_steps - 1:
+            truncated = True
+        else:
+            self.t += 1
+
         return (
             (
                 self.agent_positions,
                 self.alive_agents,
-                *(
-                    [self.job_positions, self.completed_jobs]
-                    if self.n_jobs > 0 else []
-                ),
+                *([self.job_positions, self.completed_jobs] if self.n_jobs > 0 else []),
             ),
             self.agent_rewards,
             done,
@@ -852,6 +858,11 @@ New Game Started!
         done = done or team_win
 
         self.agent_rewards = self._merge_rewards(self.agent_rewards, team_reward)
+
+        if self.t == self.max_time_steps - 1:
+            truncated = True
+        else:
+            self.t += 1
 
         return (
             (
