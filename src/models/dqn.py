@@ -80,10 +80,8 @@ class MLP(nn.Module):
         return ModelType.MLP
 
     def forward(self, spatial_x, non_spatial_x):
-        batch_size, timesteps, C, H, W = spatial_x.size()
-        x = torch.cat(
-            (spatial_x.view(batch_size, -1), non_spatial_x.view(batch_size, -1)), dim=1
-        )
+        batch_size, *_ = spatial_x.size()
+        x = non_spatial_x.view(batch_size, -1) # NOTE: This is a hack, spatial state is not used
         out = self.model(x)
         return out
 

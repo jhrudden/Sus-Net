@@ -317,7 +317,7 @@ class FlatFeaturizer(StateSequenceFeaturizer):
         ), f"Expected 3D tensor. Got: {state_sequence.dim()}"
 
         self.B, self.T, _ = state_sequence.size()
-        self.featurized_state = state_sequence.view(self.B, self.T, -1)
+        self.featurized_state = state_sequence.view(self.B, self.T, -1).to(torch.float32)
     
     def get_featurized_state(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
         featurized = []

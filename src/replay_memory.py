@@ -34,16 +34,16 @@ class ReplayBuffer:
 
         # initializing the timestep buffer
         self.states = torch.empty(
-            (self.max_size, self.trajectory_size, self.state_size), dtype=torch.float64
+            (self.max_size, self.trajectory_size, self.state_size)
         )
-        self.actions = torch.empty((self.max_size, self.n_agents), dtype=torch.int64)
-        self.rewards = torch.empty((self.max_size, self.n_agents), dtype=torch.float32)
+        self.actions = torch.empty((self.max_size, self.n_agents), dtype=torch.long)
+        self.rewards = torch.empty((self.max_size, self.n_agents))
         self.next_states = torch.empty(
             (self.max_size, self.trajectory_size, self.state_size)
         )
         self.dones = torch.empty((self.max_size, 1), dtype=torch.bool)
         self.imposters = torch.empty(
-            (self.max_size, self.n_imposters), dtype=torch.int64
+            (self.max_size, self.n_imposters), dtype=torch.int16
         )
 
         # initializing current index and buffer size

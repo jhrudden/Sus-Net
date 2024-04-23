@@ -97,8 +97,8 @@ class DQNTeamTrainer:
                     # compute the value of the actions taken by the agent (gradients are calculated here!)
 
                     action_values = team_model(
-                        state_feat[0][team_samples, :, :, :],
-                        state_feat[1][team_samples, :, :],
+                        state_feat[0][team_samples],
+                        state_feat[1][team_samples],
                     )
 
                     actions = torch.tensor(batch.actions[team_samples, agent_idx])
@@ -121,8 +121,8 @@ class DQNTeamTrainer:
                             + self.gamma
                             * torch.max(
                                 team_model_target(
-                                    next_state_feat[0][team_samples, :, :, :, :].detach(),
-                                    next_state_feat[1][team_samples, :, :].detach(),
+                                    next_state_feat[0][team_samples].detach(),
+                                    next_state_feat[1][team_samples].detach(),
                                 ),
                                 dim=1,
                             )[0]
