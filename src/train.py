@@ -430,8 +430,13 @@ def run_game(
 ):
      with AmongUsVisualizer(env) as visualizer:
         state, _ = visualizer.reset()
-        replay_memory = ReplayBuffer(1_000, sequence_length, env.flattened_state_size, env.n_agents, env.n_imposters)
-
+        replay_memory = ReplayBuffer(
+            max_size=10_000,
+            trajectory_size=sequence_length,
+            state_size=env.flattened_state_size,
+            n_imposters=env.n_imposters,
+            n_agents=env.n_agents,
+        )
         state_sequence = np.zeros((replay_memory.trajectory_size, replay_memory.state_size))
         for i in range(replay_memory.trajectory_size):
             state_sequence[i] = env.flatten_state(state)
@@ -448,7 +453,7 @@ def run_game(
                     break
             
             if not done and not paused:
-                featurizer.fit(state)
+                featurizer.fit(state_sequence=torch.tensor(state_sequence).unsqueeze(0))
                 actions = []
 
                 for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(featurizer.get_featurized_state()):
@@ -473,6 +478,9 @@ def run_game(
                     next_state=next_state_sequence,
                     imposters=env.imposter_idxs
                 )
+
+                state = next_state
+                state_sequence = next_state_sequence
             
             pygame.time.wait(1000)
         visualizer.close()
