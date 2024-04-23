@@ -144,9 +144,9 @@ class FourRoomEnv(Env):
             for idx, field in enumerate(
                 [
                     StateFields.AGENT_POSITIONS,
+                    StateFields.ALIVE_AGENTS,
                     StateFields.JOB_POSITIONS,
                     StateFields.JOB_STATUS,
-                    StateFields.ALIVE_AGENTS,
                 ]
             )
         }
