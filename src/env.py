@@ -581,7 +581,7 @@ Metrics:
             raise ValueError(f"Invalid state field: {state_field}")
 
     def compute_action(self, agent_idx, action_idx):
-        return str(Action(action_idx))
+        return str(Action(self.agent_action_map[agent_idx][action_idx]))
 
 
 class ImposterTrainingGround(FourRoomEnv):
