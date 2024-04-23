@@ -70,7 +70,8 @@ class AmongUsVisualizer:
         """
         self.screen.fill(BACKGROUND_COLOR)  # clear the screen
         self._draw_grid()
-        self._draw_voting()
+        if "Tagging" in self.env.__class__.__name__:
+            self._draw_voting()
         self._draw_jobs()
         self._draw_agents()
         if self.game_over:
@@ -311,20 +312,30 @@ class StateSequenceVisualizer:
     def visualize_global_state(self, imposters: torch.Tensor):
         for b, spatial in enumerate(torch.unbind(self.featurizer.spatial, dim=0)):
             imposters_locations = set(imposters[b].tolist())
-            self._visualize_sequence(spatial, imposters_locations, title=f"Global State, Batch {b}")
+            self._visualize_sequence(
+                spatial, imposters_locations, title=f"Global State, Batch {b}"
+            )
 
     def visualize_perspectives(self, imposters: torch.Tensor):
-        for agent_id, (batched_spatial, batch_non_spatial) in enumerate(self.featurizer.generator()):
+        for agent_id, (batched_spatial, batch_non_spatial) in enumerate(
+            self.featurizer.generator()
+        ):
             B, *_ = batched_spatial.size()
             for b in range(B):
                 self._visualize_sequence(
-                    batched_spatial[b], # remove batch dimension
+                    batched_spatial[b],  # remove batch dimension
                     title=f"Agent {agent_id}'s Perspective",
                     description=f"Non-Spatial: \n{str(batch_non_spatial[b])}",
                     imposters=set(imposters[b].tolist()),
                 )
 
-    def _visualize_step(self, spatial: torch.Tensor, sequence_idx: int, imposters: Set[int] = None, ax=None):
+    def _visualize_step(
+        self,
+        spatial: torch.Tensor,
+        sequence_idx: int,
+        imposters: Set[int] = None,
+        ax=None,
+    ):
 
         n_channels, n_rows, n_cols = spatial[sequence_idx, ...].shape
         n_agents = self.featurizer.env.n_agents
@@ -369,7 +380,11 @@ class StateSequenceVisualizer:
                     )
 
     def _visualize_sequence(
-        self, spatial: torch.Tensor, imposters: Set[int], title: str = None, description: str = None
+        self,
+        spatial: torch.Tensor,
+        imposters: Set[int],
+        title: str = None,
+        description: str = None,
     ):
         seq_len, n_channels, _, __ = spatial.size()
 

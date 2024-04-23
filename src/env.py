@@ -362,7 +362,8 @@ class FourRoomEnv(Env):
         for agent_idx in agent_action_order:
 
             self._agent_step(
-                agent_idx=agent_idx, agent_action=Action(agent_actions[agent_idx])
+                agent_idx=agent_idx,
+                agent_action=self.agent_action_map[agent_idx][agent_actions[agent_idx]],
             )
 
         team_win, team_reward = self.check_win_condition()
@@ -593,7 +594,7 @@ class ImposterTrainingGround(FourRoomEnv):
             n_imposters=1,
             n_crew=n_crew,
             n_jobs=n_jobs,
-            timestep_reward=time_step_reward,
+            time_step_reward=time_step_reward,
             kill_reward=kill_reward,
             job_reward=sabotage_reward,
             debug=debug,
@@ -620,14 +621,12 @@ class ImposterTrainingGround(FourRoomEnv):
             imposter_action = imposter_action[0]
 
         # generate random equiprobable actions for crew memebrs
-        agent_actions = np.random.randint(
-            0, len(self.imposter_actions), size=self.n_agents
-        )
+        agent_actions = np.random.randint(0, self.n_crew_actions, size=self.n_agents)
         # fill in the imposter action
         agent_actions[self.imposter_idxs[0]] = imposter_action
 
         # calling super step method and only returning the imposter reward
-        next_state, rewards, done, trunc, metrics = super.step(agent_actions)
+        next_state, rewards, done, trunc, metrics = super().step(agent_actions)
         reward = rewards[self.imposter_idxs[0]]
 
         return next_state, reward, done, trunc, metrics
@@ -650,6 +649,9 @@ class ImposterTrainingGround(FourRoomEnv):
             return True, -1 * self.game_end_reward
 
         return False, 0
+
+    def sample_actions(self):
+        return np.random.choice(len(self.agent_action_map[self.imposter_idxs[0]]))
 
 
 class FourRoomEnvWithTagging(FourRoomEnv):
