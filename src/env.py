@@ -122,10 +122,12 @@ class FourRoomEnv(Env):
         is_action_order_random=True,
         random_state: Optional[int] = None,
         kill_reward: int = -5,
-        job_reward=3,
+        complete_job_reward=3,
+        sabotage_reward=3,
         time_step_reward: int = 0,
         game_end_reward: int = 10,
         dead_penalty: int = -2,  # penalty for dead agents TAX THE DEAD!
+        shuffle_imposter_index: bool = True,
         debug: bool = False,
     ):
         super().__init__()
@@ -156,10 +158,12 @@ class FourRoomEnv(Env):
         self.n_agents = n_imposters + n_crew
         self.n_jobs = n_jobs
         self.kill_reward = kill_reward
-        self.job_reward = job_reward
+        self.complete_job_reward = complete_job_reward
+        self.sabotage_reward = sabotage_reward
         self.time_step_reward = time_step_reward
         self.game_end_reward = game_end_reward
         self.dead_penalty = dead_penalty
+        self.shuffle_imposter_index = shuffle_imposter_index
 
         self.job_positions = None
         self.agent_positions = None
@@ -210,10 +214,16 @@ class FourRoomEnv(Env):
                 spaces.Box(
                     low=0, high=self.n_rows, shape=(self.n_agents, 2), dtype=int
                 ),  # Agent positions
-                spaces.Box(
-                    low=0, high=self.n_rows, shape=(self.n_jobs, 2), dtype=int
-                ),  # Job positions
-                spaces.MultiBinary(self.n_jobs),  # Completed jobs
+                *(
+                    [
+                        spaces.Box(
+                            low=0, high=self.n_rows, shape=(self.n_jobs, 2), dtype=int
+                        ),
+                        spaces.MultiBinary(self.n_jobs),
+                    ]
+                    if self.n_jobs > 0
+                    else []
+                ),  # Completed jobs
                 spaces.MultiBinary(self.n_agents),  # Alive agents
             )
         )
@@ -234,7 +244,7 @@ class FourRoomEnv(Env):
     def _validate_init_args(self, n_imposters, n_crew, n_jobs):
         assert n_imposters > 0, f"Must have at least one imposter. Got {n_imposters}."
         assert n_crew > 0, f"Must have at least one crew member. Got {n_crew}."
-        assert n_jobs > 0, f"Must have at least one job. Got {n_jobs}."
+        assert n_jobs >= 0, f"Must non-negative jobs. Got {n_jobs}."
         assert (
             n_imposters < n_crew
         ), f"Must be more crew members than imposters. Got {n_imposters} imposters and {n_crew} crew members."
@@ -260,10 +270,14 @@ class FourRoomEnv(Env):
         # reset metrics
         self.metrics.reset()
 
-        # randomize imposter positions
-        self.imposter_idxs = np.random.choice(
-            range(self.n_agents), size=self.n_imposters, replace=False
-        )
+        # determining imposter positions
+        if self.shuffle_imposter_index:
+            self.imposter_idxs = np.random.choice(
+                range(self.n_agents), size=self.n_imposters, replace=False
+            )
+        else:
+            self.imposter_idxs = np.arange(self.n_imposters)
+
         self.imposter_mask = np.zeros(self.n_agents, dtype=bool)
         self.imposter_mask[self.imposter_idxs] = True
         self.crew_mask = ~self.imposter_mask
@@ -498,7 +512,7 @@ Metrics:
             if job_idx is not None and not self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 1
                 self.metrics.increment(SusMetrics.COMPLETED_JOBS, 1)
-                self.agent_rewards[agent_idx] = self.job_reward
+                self.agent_rewards[agent_idx] = self.complete_job_reward
                 self.logger.debug(f"Agent {agent_idx} fixed a job at {pos}!")
 
         # agent attempts to sabotage
@@ -507,7 +521,7 @@ Metrics:
             if job_idx is not None and self.completed_jobs[job_idx]:
                 self.completed_jobs[job_idx] = 0
                 self.metrics.increment(SusMetrics.SABOTAGED_JOBS, 1)
-                self.agent_rewards[agent_idx] = -1 * self.job_reward
+                self.agent_rewards[agent_idx] = -1 * self.sabotage_reward
                 self.logger.debug(f"Imposter {agent_idx} sabotaged a job at {pos}!")
 
     def _get_agents_at_pos(self, pos, crew_only=True) -> List[int]:
@@ -576,6 +590,7 @@ class ImposterTrainingGround(FourRoomEnv):
         end_of_game_reward,
         random_state=None,
         debug=False,
+        shuffle_imposter_index=False,
     ):
         """
         Initializes the ImposterTrainingGround environment.
@@ -596,13 +611,17 @@ class ImposterTrainingGround(FourRoomEnv):
             n_jobs=n_jobs,
             time_step_reward=time_step_reward,
             kill_reward=kill_reward,
-            job_reward=sabotage_reward,
+            sabotage_reward=sabotage_reward,
             debug=debug,
             dead_penalty=0,
             game_end_reward=end_of_game_reward,
             random_state=random_state,
             is_action_order_random=False,
+            shuffle_imposter_index=shuffle_imposter_index,
         )
+
+    def _validate_init_args(self, n_imposters, n_crew, n_jobs):
+        assert n_crew > 0, f"Must have at least one crew member. Got {n_crew}."
 
     def step(self, imposter_action):
         """
@@ -629,14 +648,14 @@ class ImposterTrainingGround(FourRoomEnv):
         next_state, rewards, done, trunc, metrics = super().step(agent_actions)
         reward = rewards[self.imposter_idxs[0]]
 
-        return next_state, reward, done, trunc, metrics
+        return next_state, [reward], done, trunc, metrics
 
     def check_win_condition(self):
         """
-        Checks if the game has reached a win condition for the imposter or the crew.
-
-        Returns:
-            tuple: A boolean indicating if the game has ended and the associated reward.
+                Checks if the game has reached a win condition for the imposter or the crew.
+        s
+                Returns:
+                    tuple: A boolean indicating if the game has ended and the associated reward.
         """
 
         # all jobs are done imposter looses

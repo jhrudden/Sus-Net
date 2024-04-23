@@ -5,16 +5,19 @@ from src.utils import EnhancedOrderedDict
 from typing import Union, List
 
 # Batch namedtuple, i.e. a class which contains the given attributes
-Batch = namedtuple("Batch", ("states", "actions", "rewards", 'next_states', "imposters", "dones"))
+Batch = namedtuple(
+    "Batch", ("states", "actions", "rewards", "next_states", "imposters", "dones")
+)
+
 
 class ReplayBuffer:
     def __init__(
-            self,
-            max_size: int,
-            state_size: int,
-            trajectory_size: int,
-            n_agents: int,
-            n_imposters: int,
+        self,
+        max_size: int,
+        state_size: int,
+        trajectory_size: int,
+        n_agents: int,
+        n_imposters: int,
     ):
         assert max_size > 0, "Replay buffer size must be positive"
         assert trajectory_size > 0, "Trajectory size must be positive"
@@ -28,17 +31,23 @@ class ReplayBuffer:
         self.n_imposters = n_imposters
 
         # initializing the timestep buffer
-        self.states = torch.empty((self.max_size, self.trajectory_size, self.state_size), dtype=torch.float64)
+        self.states = torch.empty(
+            (self.max_size, self.trajectory_size, self.state_size), dtype=torch.float64
+        )
         self.actions = torch.empty((self.max_size, self.n_agents), dtype=torch.int64)
         self.rewards = torch.empty((self.max_size, self.n_agents), dtype=torch.float32)
-        self.next_states = torch.empty((self.max_size, self.trajectory_size, self.state_size))
+        self.next_states = torch.empty(
+            (self.max_size, self.trajectory_size, self.state_size)
+        )
         self.dones = torch.empty((self.max_size, 1), dtype=torch.bool)
-        self.imposters = torch.empty((self.max_size, self.n_imposters), dtype=torch.int64)
+        self.imposters = torch.empty(
+            (self.max_size, self.n_imposters), dtype=torch.int64
+        )
 
         # initializing current index and buffer size
         self.idx = 0
         self.size = 0
-    
+
     def add(self, state, action, reward, next_state, done, imposters):
         """
         Add a transition to the buffer.
@@ -62,7 +71,7 @@ class ReplayBuffer:
         self.idx = (self.idx + 1) % self.max_size
         # Update the current buffer size
         self.size = min(self.size + 1, self.max_size)
-    
+
     def sample(self, batch_size) -> Batch:
         """Sample a batch of experiences.
 
@@ -110,16 +119,20 @@ class ReplayBuffer:
                 action = env.sample_actions()
                 n_s, reward, done, truncation, _ = env.step(action)
                 next_state = env.flatten_state(n_s)
-                next_sequence = np.roll(state_sequence.copy(), -1, axis=0) # shift the sequence by one step back (copying the array to avoid reference issues)
-                next_sequence[-1] = next_state.copy() # replace the last state in the sequence with the new state
+                next_sequence = np.roll(
+                    state_sequence.copy(), -1, axis=0
+                )  # shift the sequence by one step back (copying the array to avoid reference issues)
+                next_sequence[-1] = (
+                    next_state.copy()
+                )  # replace the last state in the sequence with the new state
                 self.add(
-                    state=state_sequence, 
-                    action=action, 
-                    reward=reward, 
-                    next_state=next_sequence, 
-                    done=done, 
-                    imposters=imposters
-                    )
+                    state=state_sequence,
+                    action=action,
+                    reward=reward,
+                    next_state=next_sequence,
+                    done=done,
+                    imposters=imposters,
+                )
                 state = next_state
                 state_sequence = next_sequence
                 step += 1
