@@ -5,7 +5,7 @@ from src.utils import EnhancedOrderedDict
 from typing import Union, List
 
 # Batch namedtuple, i.e. a class which contains the given attributes
-Batch = namedtuple("Batch", ("states", "actions", "rewards", "imposters", "dones"))
+Batch = namedtuple("Batch", ("states", "actions", "rewards", 'next_states', "imposters", "dones"))
 
 class ReplayBuffer:
     def __init__(
@@ -28,12 +28,12 @@ class ReplayBuffer:
         self.n_imposters = n_imposters
 
         # initializing the timestep buffer
-        self.states = torch.empty((self.max_size, self.trajectory_size, self.state_size), dtype=torch.float32)
-        self.actions = torch.empty((self.max_size, self.n_agents), dtype=torch.int32)
+        self.states = torch.empty((self.max_size, self.trajectory_size, self.state_size), dtype=torch.float64)
+        self.actions = torch.empty((self.max_size, self.n_agents), dtype=torch.int64)
         self.rewards = torch.empty((self.max_size, self.n_agents), dtype=torch.float32)
         self.next_states = torch.empty((self.max_size, self.trajectory_size, self.state_size))
         self.dones = torch.empty((self.max_size, 1), dtype=torch.bool)
-        self.imposters = torch.empty((self.max_size, self.n_imposters), dtype=torch.int16)
+        self.imposters = torch.empty((self.max_size, self.n_imposters), dtype=torch.int64)
 
         # initializing current index and buffer size
         self.idx = 0
@@ -81,6 +81,7 @@ class ReplayBuffer:
             actions=self.actions[sample_idx],
             rewards=self.rewards[sample_idx],
             imposters=self.imposters[sample_idx],
+            next_states=self.next_states[sample_idx],
             dones=self.dones[sample_idx],
         )
 
@@ -110,7 +111,7 @@ class ReplayBuffer:
                 n_s, reward, done, truncation, _ = env.step(action)
                 next_state = env.flatten_state(n_s)
                 next_sequence = np.roll(state_sequence.copy(), -1, axis=0) # shift the sequence by one step back (copying the array to avoid reference issues)
-                next_sequence[-1] = next_state
+                next_sequence[-1] = next_state.copy() # replace the last state in the sequence with the new state
                 self.add(
                     state=state_sequence, 
                     action=action, 

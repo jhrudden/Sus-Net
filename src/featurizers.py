@@ -69,15 +69,14 @@ class StateSequenceFeaturizer(ABC):
         raise NotImplementedError("Need to implement fit method.")
 
     @abstractmethod
-    def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
+    def get_featurized_state(self) -> List[Tuple[torch.Tensor, torch.Tensor]]:
         """
-        Generator that yields the featurized state from each agent's perspective.
+        Returns the featurized state from each agent's perspective.
 
-        Yields:
-            Tuple[torch.Tensor, torch.Tensor]: Tuple of spatial and non-spatial features.
+        Returns:
+            List[Tuple[torch.Tensor, torch.Tensor]]: List of spatial and non-spatial features.
         """
-        raise NotImplementedError("Need to implement generator method.")
-
+        raise NotImplementedError("Need to implement get_featurized_state method.")
 
 class PerspectiveFeaturizer(StateSequenceFeaturizer):
     """
@@ -99,7 +98,7 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         self.agent_non_sp_f = CombineFeaturizer(
             [
                 StateFieldFeaturizer(env=env, state_field=StateFields.ALIVE_AGENTS),
-                StateFieldFeaturizer(env=env, state_field=StateFields.TAG_COUNTS),
+                *([StateFieldFeaturizer(env=env, state_field=StateFields.TAG_COUNTS)] if 'Tagging' in env.__class__.__name__ else []),
             ]
         )
         self.global_non_sp_f = CombineFeaturizer(
@@ -167,11 +166,13 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
         )
 
         return spatial_features, agent_non_spatial_features, global_non_spatial_features
-
-    def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
+    
+    def get_featurized_state(self) -> List[Tuple[torch.Tensor, torch.Tensor]]:
         spatial_rep = self.spatial.detach().clone()
         agent_non_spatial_rep = self.agent_non_spatial.detach().clone()
         global_non_spatial_rep = self.global_non_spatial.detach().clone()
+
+        featurized = []
 
         C = spatial_rep.size(2)  # number of channels size (B, T, C, H, W)
 
@@ -197,13 +198,17 @@ class PerspectiveFeaturizer(StateSequenceFeaturizer):
                 dim=2,
             )
 
-            yield (
-                spatial_rep[:, :, channel_order, :, :]
-                .detach()
-                .clone()
-                .requires_grad_(True),
-                non_spatial.requires_grad_(True),
+            featurized.append(
+                (
+                    spatial_rep[:, :, channel_order, :, :]
+                    .detach()
+                    .clone()
+                    .requires_grad_(True),
+                    non_spatial.requires_grad_(True),
+                )
             )
+        
+        return featurized
 
 
 class GlobalFeaturizer(StateSequenceFeaturizer):
@@ -227,7 +232,7 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
         self.non_spatial_features = CombineFeaturizer(
             featurizers=[
                 StateFieldFeaturizer(env=env, state_field=StateFields.ALIVE_AGENTS),
-                StateFieldFeaturizer(env=env, state_field=StateFields.TAG_COUNTS),
+                *([StateFieldFeaturizer(env=env, state_field=StateFields.TAG_COUNTS)] if 'Tagging' in env.__class__.__name__ else []),
                 StateFieldFeaturizer(env=env, state_field=StateFields.JOB_STATUS),
             ]
         )
@@ -274,17 +279,20 @@ class GlobalFeaturizer(StateSequenceFeaturizer):
 
         return spatial_features, non_spatial_features
 
-    def generator(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
+    def get_featurized_state(self) -> Generator[Tuple[torch.Tensor, torch.Tensor], None, None]:
+        featurized = []
         for agent_idx in range(self.env.n_agents):
             agent_idx_tensor = torch.zeros(self.B, self.T, self.env.n_agents)
             agent_idx_tensor[:, :, agent_idx] = 1
 
-            yield (
+            featurized.append(
                 self.spatial.detach().clone().requires_grad_(True),
                 torch.cat(
                     [self.non_spatial.detach().clone(), agent_idx_tensor], dim=2
                 ).requires_grad_(True),
             )
+        
+        return featurized
 
 
 class Featurizer(ABC):
