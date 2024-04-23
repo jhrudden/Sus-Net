@@ -56,7 +56,7 @@ class FastReplayBuffer:
             - state (np.ndarray): Current state
             - imposters (np.ndarray): List of imposter indices
         """
-        self.add(state, -1, 0, False, imposters, is_start=True)
+        self.add(state, 0, 0, False, imposters, is_start=True)
 
     def add_terminal(self, state, imposters):
         """

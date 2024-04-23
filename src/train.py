@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import copy
 import tqdm
 from src.scheduler import ExponentialSchedule
-from src.env import FourRoomEnv, StateFields
+from src.env import FourRoomEnv, StateFields, FourRoomEnvWithTagging
 from src.featurizers import StateSequenceFeaturizer, FeaturizerType
 from src.metrics import EpisodicMetricHandler, SusMetrics
 from src.replay_memory import FastReplayBuffer
@@ -61,11 +61,6 @@ class DQNTeamTrainer:
             if opt is not None:
                 opt.zero_grad()
 
-        # for i, p in enumerate(imposter_model.cnn.parameters()):
-        #     if i == 0:
-        #         print("before ")
-        #         print(p.grad)
-
         featurizer.fit(batch.states)
 
         for agent_idx, (spatial, non_spatial) in enumerate(featurizer.generator()):
@@ -97,35 +92,16 @@ class DQNTeamTrainer:
                     team_model.train()
                     # compute the value of the actions taken by the agent (gradients are calculated here!)
 
-                    # print("imposters ", batch.imposters)
-
-                    # assert (
-                    #     spatial[batch.imposters[0], :-1, :, :, :]
-                    #     != spatial[batch.imposters[1], :-1, :, :, :]
-                    # )
-                    print("team samples: ", {team_samples})
-                    print("NON SPACIAL!!!")
-                    print(
-                        non_spatial[:, :-1, :],
-                    )
-
                     action_values = team_model(
                         spatial[team_samples, :-1, :, :, :],
                         non_spatial[team_samples, :-1, :],
                     )
 
-                    print("Action values")
-                    print(action_values)
                     actions = torch.tensor(batch.actions[team_samples, -2, agent_idx])
-                    print("Actions form train step")
-                    print(actions)
 
                     values = torch.gather(
-                        action_values, 1, actions.view(-1).unsqueeze(-1)
+                        action_values, 1, actions.view(-1, 1)
                     ).view(-1)
-
-                    print("Actions value")
-                    print(values)
 
                     with torch.no_grad():
                         done_mask = batch.dones[team_samples, -2].view(-1)
@@ -134,9 +110,6 @@ class DQNTeamTrainer:
                             batch.rewards[team_samples, -2, agent_idx]
                         ).view(-1)
 
-                        print(f"Bitch rewards: {rewards}")
-
-                        print(f"Bitch Dones: {done_mask}")
 
                         # calculate target values, no gradients here (notice the detach() calls
                         target_values = (
@@ -156,9 +129,6 @@ class DQNTeamTrainer:
                     loss.backward()
                     accumulated_losses[loss_idx] += loss.item()
 
-        for i, p in enumerate(imposter_model.parameters()):
-            print("after ")
-            print(p.grad.sum())
 
         # use gradients to update models
         for opt in [self.imposter_optimizer, self.crew_optimizer]:
@@ -237,7 +207,7 @@ def run_experiment(
     featurizer = FeaturizerType.build(featurizer_type, env=env)
 
     # run actual experiment
-    all_metrics, _, __ = train(
+    all_metrics, losses = train(
         env=env,
         metrics=metrics,
         num_steps=num_steps,
@@ -262,7 +232,7 @@ def run_experiment(
     if experiment_save_path is not None:
         metrics.save_metrics(save_file_path=experiment_save_path / "metrics.json")
     
-    return all_metrics
+    return all_metrics, losses
 
 
 def train(
@@ -338,9 +308,6 @@ def train(
                 # choose action for alive imposter
                 if env.imposter_mask[agent_idx] and alive_agents[agent_idx]:
 
-                    print(
-                        imposter_model(spatial[:, 1:, :, :, :], non_spatial[:, 1:, :])
-                    )
 
                     if np.random.random() <= eps:
                         agent_actions[agent_idx] = np.random.randint(
@@ -439,16 +406,16 @@ def train(
 
     # saving final model states
     imposter_model.dump_to_checkpoint(
-        os.path.join(save_directory_path, f"imposter_dqn_100%.pt")
+        os.path.join(save_directory_path, f"imposter_{imposter_model.model_type}_100%.pt")
     )
     crew_model.dump_to_checkpoint(
-        os.path.join(save_directory_path, f"crew_dqn_100%.pt")
+        os.path.join(save_directory_path, f"crew_{crew_model.model_type}_100%.pt")
     )
 
-    return metrics.metrics, returns, losses
+    return metrics.metrics,losses
 
 def run_game(
-    env: FourRoomEnv,
+    env: FourRoomEnvWithTagging,
     imposter_model: Q_Estimator,
     crew_model: Q_Estimator,
     featurizer: StateSequenceFeaturizer,
@@ -456,7 +423,7 @@ def run_game(
 ):
      with AmongUsVisualizer(env) as visualizer:
         state, _ = visualizer.reset()
-        replay_memory = FastReplayBuffer(1_000, 4, env.flattened_state_size, env.n_agents, env.n_imposters)
+        replay_memory = FastReplayBuffer(1_000, sequence_length, env.flattened_state_size, env.n_agents, env.n_imposters)
         replay_memory.add_start(env.flatten_state(state), env.imposter_idxs)
 
 
@@ -479,7 +446,8 @@ def run_game(
 
                 for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(featurizer.generator()):
                     if agent_idx in env.imposter_idxs:
-                        action = imposter_model(agent_spatial, agent_non_spatial).argmax().item()
+                        action_probs = imposter_model(agent_spatial, agent_non_spatial)
+                        action = action_probs.argmax().item()
                     else:
                         action = crew_model(agent_spatial, agent_non_spatial).argmax().item()
                     

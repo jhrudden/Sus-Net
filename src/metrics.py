@@ -16,6 +16,8 @@ class SusMetrics(StrEnum):
     CREW_WON = auto()
     AVG_CREW_RETURN = auto()
     AVG_IMPOSTER_RETURN = auto()
+    AVG_CREW_LOSS = auto()
+    AVG_IMPOSTER_LOSS = auto()
 
     @classmethod
     def can_increment(cls, metric: str):

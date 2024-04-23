@@ -98,8 +98,8 @@ CREW_ACTIONS = [
     Action.STAY,
     Action.UP,
     Action.DOWN,
-    Action.RIGHT,
     Action.LEFT,
+    Action.RIGHT,
     Action.FIX,
 ]
 
@@ -107,8 +107,8 @@ IMPOSTER_ACTIONS = [
     Action.STAY,
     Action.UP,
     Action.DOWN,
-    Action.RIGHT,
     Action.LEFT,
+    Action.RIGHT,
     Action.SABOTAGE,
     Action.KILL,
 ]
@@ -782,3 +782,11 @@ New Game Started!
         self.used_tag_actions = np.zeros(self.n_agents, dtype=bool)
         self.tag_reset_timer = 0
         self.logger.debug("Tagging state reset!")
+    
+    def compute_action(self, agent_idx, action_idx):
+        if action_idx < len(Action):
+            return str(Action(action_idx))
+        else:
+            players = np.arange(self.n_agents)
+            player = players[players != agent_idx][action_idx - len(Action)]
+            return f'Vote Player {player}'

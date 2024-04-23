@@ -25,6 +25,7 @@ class ModelType(StrEnum):
             if kwargs.get("pretrained_model_path", None) is not None:
                 return SpatialDQN.load_from_checkpoint(kwargs["pretrained_model_path"])
             kwargs.pop("pretrained_model_path", None)
+            print('SpatialDQN kwargs: ', kwargs)
             return SpatialDQN(**kwargs)
         elif model_type == ModelType.MLP:
             if kwargs.get("pretrained_model_path", None) is not None:
@@ -90,6 +91,14 @@ class MLP(nn.Module):
         checkpoint = {"state_dict": model.state_dict(), "config": model.config}
         torch.save(checkpoint, filepath)
         print(f"Model checkpoint saved to {filepath}")
+    
+    def load_from_checkpoint(filepath):
+        checkpoint = torch.load(filepath)
+        config = checkpoint["config"]
+        model = MLP(**config)
+        model.load_state_dict(checkpoint["state_dict"])
+        print("Model loaded from checkpoint")
+        return model
 
 
 class RandomEquiprobable(Q_Estimator):
@@ -125,13 +134,24 @@ class CNNModel(nn.Module):
         n_channels: List[int],
         strides: List[int],
         paddings: List[int],
-        kernel_sizes: List[int],
+        kernel_size: List[int],
+        dilations: List[int],
     ):
         super(CNNModel, self).__init__()
 
+        self.expected_output_dim = calculate_cnn_output_dim(
+            input_size=9, kernel_size=kernel_size, strides=strides, paddings=paddings, dilations=dilations
+        )
+
+        n_channels = n_channels + [n_channels[-1]]  # added for the last layer
+        paddings = paddings + [paddings[-1]]  # added for the last layer
+        strides = strides + [strides[-1]]  # added for the last layer
+        dilations = dilations + [dilations[-1]] # added for the last layer
+
+
         layers = []
-        for idx, (channels, stride, kernel_size, padding) in enumerate(
-            zip(n_channels[:-1], strides, kernel_sizes, paddings)
+        for idx, (channels, stride, padding, dilation) in enumerate(
+            zip(n_channels[:-1], strides, paddings, dilations)
         ):
             layers.append(
                 nn.Conv2d(
@@ -140,10 +160,11 @@ class CNNModel(nn.Module):
                     stride=stride,
                     kernel_size=kernel_size,
                     padding=padding,
+                    dilation=dilation,
                 )
             )
             layers.append(nn.ReLU())
-
+        
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -182,7 +203,8 @@ class SpatialDQN(Q_Estimator):
         n_channels: List[int],
         strides: List[int],
         paddings: List[int],
-        kernel_sizes: List[int],
+        kernel_size: List[int],
+        dilations: List[int],
         # RNN arguments
         rnn_layers: int,
         rnn_hidden_dim: int,
@@ -199,28 +221,32 @@ class SpatialDQN(Q_Estimator):
             "n_channels": n_channels,
             "strides": strides,
             "paddings": paddings,
-            "kernel_sizes": kernel_sizes,
+            'dilations': dilations,  # added for 'dilations' argument
+            "kernel_size": kernel_size,
             "rnn_layers": rnn_layers,
             "rnn_hidden_dim": rnn_hidden_dim,
             "rnn_dropout": rnn_dropout,
             "mlp_hidden_layer_dims": mlp_hidden_layer_dims,
             "n_actions": n_actions,
         }
+        
+        # calculating the number of features out of CNN
+        self.cnn_ouput_dim = calculate_cnn_output_dim(
+            input_size=input_image_size,
+            kernel_size=kernel_size,
+            strides=strides,
+            paddings=paddings,
+            dilations=dilations,
+        )
 
         self.cnn = CNNModel(
             n_channels=n_channels,
             strides=strides,
             paddings=paddings,
-            kernel_sizes=kernel_sizes,
+            kernel_size=kernel_size,
+            dilations=dilations,
         )
 
-        # calculating the number of features out of CNN
-        self.cnn_ouput_dim = calculate_cnn_output_dim(
-            input_size=input_image_size,
-            kernel_sizes=kernel_sizes,
-            strides=strides,
-            paddings=paddings,
-        )
         self.rnn_in_dim = (
             self.cnn_ouput_dim**2 * n_channels[-1] + non_spatial_input_size
         )
@@ -252,7 +278,6 @@ class SpatialDQN(Q_Estimator):
         cnn_out = self.cnn(cnn_in)
         # Reshape the output for the RNN
 
-        print(f"CNN OUT SUM: {cnn_out.sum()}")
 
         cnn_out = cnn_out.view(batch_size, timesteps, -1)
         # appending non-spatial features
