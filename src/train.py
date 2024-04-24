@@ -8,7 +8,6 @@ import copy
 import tqdm
 import pathlib
 from datetime import datetime
-import pandas as pd
 import json
 
 from src.scheduler import ExponentialSchedule
@@ -206,7 +205,6 @@ def run_experiment(
     }
     
     # save the configs
-    pd.DataFrame(experiment_config).to_csv(experiment_dir / 'config.csv')
     with open(experiment_dir / 'config.json', "w") as f:
         json.dump(experiment_config, f, cls=GeneralEncoder, indent=4)
 
