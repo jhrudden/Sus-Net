@@ -1,7 +1,22 @@
 from src.metrics import SusMetrics
-from src.environment.base import FourRoomEnv
+from src.environment.base import FourRoomEnv, IMPOSTER_ACTIONS, CREW_ACTIONS, Action
 
+CREW_ACTIONS_SIMPLE = [
+    Action.STAY,
+    Action.UP,
+    Action.DOWN,
+    Action.LEFT,
+    Action.RIGHT,
+]
 
+IMPOSTER_ACTIONS_SIMPLE = [
+    Action.STAY,
+    Action.UP,
+    Action.DOWN,
+    Action.LEFT,
+    Action.RIGHT,
+    Action.KILL,
+]
 class ImposterTrainingGround(FourRoomEnv):
     """
     A specialized environment where an imposter is trained to strategize against
@@ -49,6 +64,13 @@ class ImposterTrainingGround(FourRoomEnv):
             shuffle_imposter_index=shuffle_imposter_index,
             include_walls=include_walls,
         )
+
+        # override imposters' actions to not include sabotage
+        self.imposter_actions = IMPOSTER_ACTIONS_SIMPLE
+        self.n_imposter_actions = len(self.imposter_actions)
+
+        self.crew_actions = CREW_ACTIONS_SIMPLE
+        self.n_crew_actions = len(self.crew_actions)
 
     def _validate_init_args(self, n_imposters, n_crew, n_jobs):
         assert n_crew > 0, f"Must have at least one crew member. Got {n_crew}."
