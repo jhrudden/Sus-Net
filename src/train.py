@@ -154,9 +154,9 @@ def run_experiment(
     num_steps: int,
     imposter_model_args: dict,
     crew_model_args: dict,
+    featurizer: SequenceStateFeaturizer,
     imposter_model_type: ModelType = ModelType.SPATIAL_DQN,
     crew_model_type: ModelType = ModelType.SPATIAL_DQN,
-    featurizer_type: FeaturizerType = FeaturizerType.GLOBAL,
     sequence_length: int = 2,
     replay_buffer_size: int = 100_000,
     replay_prepopulate_steps: int = 1000,
@@ -187,7 +187,7 @@ def run_experiment(
         'crew_model_args': crew_model_args,
         'imposter_model_type': imposter_model_type,
         'crew_model_type': crew_model_type,
-        'featurizer_type': featurizer_type,
+        'featurizer_type': str(featurizer),
         'sequence_length': sequence_length,
         'replay_buffer_size': replay_buffer_size,
         'replay_prepopulate_steps': replay_prepopulate_steps,
@@ -250,11 +250,8 @@ def run_experiment(
 
     replay_buffer.populate(env=env, num_steps=replay_prepopulate_steps)
 
-    # initialize featurizer
-    featurizer = FeaturizerType.build(featurizer_type, env=env)
-
     # run actual experiment
-    losses = train(
+    train(
         env=env,
         metrics=metrics,
         num_steps=num_steps,
@@ -278,7 +275,7 @@ def run_experiment(
     # run experiment
     metrics.save_metrics(save_file_path=experiment_dir / "metrics.json")
 
-    return metrics, losses
+    return metrics
 
 
 def train(
@@ -462,7 +459,12 @@ def train(
         SusMetrics.AVG_CREW_RETURNS: returns[:, 1].tolist(),
     })
 
-    return losses
+    losses = np.array(losses)
+
+    metrics.set({
+        SusMetrics.IMPOSTER_LOSS: losses[:, 0].tolist(),
+        SusMetrics.CREW_LOSS: losses[:, 1].tolist(),
+    })
 
 
 def run_game(

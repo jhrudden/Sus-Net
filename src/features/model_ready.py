@@ -23,7 +23,7 @@ class FeaturizerType(StrEnum):
     FLAT = auto()
 
     @staticmethod
-    def build(featurizer_type: str, env: FourRoomEnv):
+    def build(featurizer_type: str, env: FourRoomEnv, **kwargs):
         assert featurizer_type in [
             f.value for f in FeaturizerType
         ], f"Invalid featurizer type: {featurizer_type}"
@@ -32,7 +32,9 @@ class FeaturizerType(StrEnum):
         elif featurizer_type == FeaturizerType.GLOBAL:
             return GlobalFeaturizer(env=env)
         elif featurizer_type == FeaturizerType.FLAT:
-            return FlatFeaturizer(env=env)
+            featurizers = kwargs.get("featurizers", None)
+            assert featurizers is not None, "Need to provide a featurizer for FlatFeaturizer."
+            return FlatFeaturizer(env=env, featurizer=featurizers)
 
 
 class SequenceStateFeaturizer(ABC):
@@ -309,23 +311,15 @@ class FlatFeaturizer(SequenceStateFeaturizer):
     Quite simple, just return the flattened state.
     """
 
-    def __init__(self, env: FourRoomEnv):
+    def __init__(self, env: FourRoomEnv, featurizer: CompositeFeaturizer):
         super().__init__(env)
-        self.featurizer = CompositeFeaturizer(
-            [   
-                # CoordinateAgentPositionsFeaturizer(env=env),
-                OneHotAgentPositionFeaturizer(env=env),
-                AliveCrewFeaturizer(env=env),
-                WallsFeaturizer(env=env),
-                # DistanceToImposterFeaturizer(env=env),
-            ]
-        )
+        self.featurizer = featurizer
 
     @property
     def featurized_shape(self):
         return (
             1,
-            self.featurizer.shape + self.env.flattened_state_size,
+            self.featurizer.shape
         )  # current returning zeros for spatial features (this is a hack, need to fix this)
 
     def fit(self, state_sequence: torch.Tensor) -> None:
@@ -334,8 +328,6 @@ class FlatFeaturizer(SequenceStateFeaturizer):
         ), f"Expected 3D tensor. Got: {state_sequence.dim()}"
 
         self.B, self.T, _ = state_sequence.size()
-
-        self.flattened_state = state_sequence.view(self.B, self.T, -1).to(torch.float32)
 
         for seq_idx in range(self.T):
             batch_states = [
@@ -373,3 +365,6 @@ class FlatFeaturizer(SequenceStateFeaturizer):
             )
 
         return featurized
+    
+    def __repr__(self) -> str:
+        return f"FlatFeaturizer_{self.featurizer}"

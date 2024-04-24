@@ -154,6 +154,9 @@ class CompositeFeaturizer(ComponentFeaturizer):
         shapes = torch.stack([f.shape for f in self.featurizers], axis=0)
         last_dims = shapes[0, 1:]
         return torch.tensor([shapes[:, 0].sum().item(), *last_dims], dtype=torch.int)
+    
+    def __repr__(self) -> str:
+        return str([f.__class__.__name__ for f in self.featurizers])
 
 
 class PartiallyObservableFeaturizer(CompositeFeaturizer):

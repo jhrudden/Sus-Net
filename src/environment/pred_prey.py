@@ -1,3 +1,4 @@
+from src.metrics import SusMetrics
 from src.environment.base import FourRoomEnv
 
 
@@ -18,6 +19,7 @@ class ImposterTrainingGround(FourRoomEnv):
         random_state=None,
         debug=False,
         shuffle_imposter_index=False,
+        include_walls: bool = False,
     ):
         """
         Initializes the ImposterTrainingGround environment.
@@ -45,6 +47,7 @@ class ImposterTrainingGround(FourRoomEnv):
             random_state=random_state,
             is_action_order_random=False,
             shuffle_imposter_index=shuffle_imposter_index,
+            include_walls=include_walls,
         )
 
     def _validate_init_args(self, n_imposters, n_crew, n_jobs):
@@ -61,10 +64,14 @@ class ImposterTrainingGround(FourRoomEnv):
         # all jobs are done imposter loses
         # NOTE: this is only possible if n_jobs is not 0
         if self.n_jobs != 0 and self.completed_jobs.sum() == self.n_jobs:
+            self.logger.debug("CREW won!")
+            self.metrics.update(SusMetrics.CREW_WON, 1)
             return True, self.game_end_reward
 
         # imposter wins bu killing all crew
         if self.alive_agents[self.crew_mask].sum() == 0:
+            self.logger.debug("Imposters won!")
+            self.metrics.update(SusMetrics.IMPOSTER_WON, 1)
             return True, -1 * self.game_end_reward
 
         return False, 0

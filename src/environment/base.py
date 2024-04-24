@@ -116,6 +116,7 @@ class FourRoomEnv(Env):
         shuffle_imposter_index: bool = True,
         debug: bool = False,
         max_time_steps=1000,
+        include_walls: bool = True,
     ):
         super().__init__()
 
@@ -167,28 +168,29 @@ class FourRoomEnv(Env):
         # NOTE: This is the 2D grid of 4 rooms that we saw in the previous examples however, no goal and start states are defined
         # Coordinate system is (x, y) where x is the horizontal and y is the vertical direction
 
-        self.walls = np.array(
-            [
-                [0, 4],
-                [2, 4],
-                [3, 4],
-                [4, 4],
-                [5, 4],
-                [6, 4],
-                [8, 4],
-                [4, 0],
-                [4, 2],
-                [4, 3],
-                [4, 5],
-                [4, 6],
-                [4, 8],
-            ]
-        )
-
-        # self.walls = np.array(
-        #     [
-        #     ]
-        # )
+        if include_walls:
+            self.walls = np.array(
+                [
+                    [0, 4],
+                    [2, 4],
+                    [3, 4],
+                    [4, 4],
+                    [5, 4],
+                    [6, 4],
+                    [8, 4],
+                    [4, 0],
+                    [4, 2],
+                    [4, 3],
+                    [4, 5],
+                    [4, 6],
+                    [4, 8],
+                ]
+            )
+        else:
+            self.walls = np.array(
+                [
+                ]
+            )
 
         self.grid = np.ones((9, 9), dtype=bool)
         if len(self.walls) != 0:
