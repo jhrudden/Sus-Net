@@ -374,4 +374,27 @@ class ImposterScentFeaturizer(ComponentFeaturizer):
     @property
     def shape(self) -> torch.tensor:
 
-        return torch.tensor([(self.env.n_agents - 1) * 2], dtype=torch.int)
+        return torch.tensor(4, dtype=torch.int)
+
+
+
+class CoordinateAgentPositionsFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+
+        agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+        
+        coordinates = torch.zeros(self.env.n_agents * 2)
+
+        for agent_idx, pos in enumerate(agent_positions):
+            coordinates[2*agent_idx] = pos[0]
+            coordinates[2*agent_idx+1] = pos[1]
+
+        return coordinates
+
+    @property
+    def shape(self) -> torch.tensor:
+        return torch.tensor([self.env.n_agents * 2], dtype=torch.int)

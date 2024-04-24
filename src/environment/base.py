@@ -166,6 +166,7 @@ class FourRoomEnv(Env):
 
         # NOTE: This is the 2D grid of 4 rooms that we saw in the previous examples however, no goal and start states are defined
         # Coordinate system is (x, y) where x is the horizontal and y is the vertical direction
+
         self.walls = np.array(
             [
                 [0, 4],
@@ -185,7 +186,9 @@ class FourRoomEnv(Env):
         )
 
         self.grid = np.ones((9, 9), dtype=bool)
-        self.grid[self.walls[:, 0], self.walls[:, 1]] = 0
+        if len(self.walls) != 0:
+            self.grid[self.walls[:, 0], self.walls[:, 1]] = 0
+
         self.valid_positions = np.argwhere(self.grid)
 
         self.imposter_actions = IMPOSTER_ACTIONS

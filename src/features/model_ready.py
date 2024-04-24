@@ -10,6 +10,7 @@ from src.features.component import (
     JobFeaturizer,
     StateFieldFeaturizer,
     OneHotAgentPositionFeaturizer,
+    CoordinateAgentPositionsFeaturizer,
 )
 from src.environment.base import FourRoomEnv, StateFields
 
@@ -309,9 +310,10 @@ class FlatFeaturizer(SequenceStateFeaturizer):
     def __init__(self, env: FourRoomEnv):
         super().__init__(env)
         self.featurizer = CompositeFeaturizer(
-            [
+            [   
+                # CoordinateAgentPositionsFeaturizer(env=env),
                 OneHotAgentPositionFeaturizer(env=env),
-                DistanceToImposterFeaturizer(env=env),
+                # DistanceToImposterFeaturizer(env=env),
             ]
         )
 
@@ -339,12 +341,8 @@ class FlatFeaturizer(SequenceStateFeaturizer):
             featurized_batch_timestep_states = []
             for batch_idx, batch_state in enumerate(batch_states):
 
-                featurized_timestep_batch_state = torch.cat(
-                    [
-                        self.flattened_state[batch_idx, seq_idx],
-                        self.featurizer.extract_features(batch_state),
-                    ]
-                )
+                featurized_timestep_batch_state = self.featurizer.extract_features(batch_state)
+
                 featurized_batch_timestep_states.append(featurized_timestep_batch_state)
 
             featurized_batch_timestep_states = torch.stack(
