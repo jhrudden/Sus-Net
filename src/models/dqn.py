@@ -53,6 +53,7 @@ class ActivationType(StrEnum):
 class Q_Estimator(nn.Module):
     def __init__(self):
         super(Q_Estimator, self).__init__()
+        self.config = {}
 
     @property
     def model_type(self):
@@ -63,6 +64,9 @@ class Q_Estimator(nn.Module):
 
     def load_from_checkpoint(self, filepath):
         raise NotImplementedError("load_from_checkpoint method not implemented")
+     
+    def create_copy(self):
+        raise NotImplementedError("create_copy method not implemented")
 
 
 class MLP(nn.Module):
@@ -98,6 +102,11 @@ class MLP(nn.Module):
         print("Model loaded from checkpoint")
         return model
 
+    def create_copy(self):
+        new_model = MLP(**self.config)
+        new_model.load_state_dict(self.state_dict())
+        return new_model
+
 
 class RandomEquiprobable(Q_Estimator):
     def __init__(self, n_outputs: int):
@@ -124,6 +133,9 @@ class RandomEquiprobable(Q_Estimator):
 
     def load_from_checkpoint(filepath):
         raise NotImplementedError("load_from_checkpoint method not implemented")
+    
+    def create_copy(self):
+        return RandomEquiprobable(self.n_outputs)
 
 
 class CNNModel(nn.Module):
@@ -300,6 +312,11 @@ class SpatialDQN(Q_Estimator):
         model.load_state_dict(checkpoint["state_dict"])
         print("Model loaded from checkpoint")
         return model
+
+    def create_copy(self):
+        new_model = SpatialDQN(**self.config)
+        new_model.load_state_dict(self.state_dict())
+        return new_model
 
 
 def make_mlp(layer_dims, activation_fn: ActivationType = ActivationType.RELU):

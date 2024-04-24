@@ -298,6 +298,9 @@ def train(
     game_lengths = []
     losses = []
 
+    imposter_target_model = imposter_model.create_copy()
+    crew_target_model = crew_model.create_copy()
+
     # Initialize structures to store the models at different stages of training
     t_saves = np.linspace(0, num_steps, num_saves - 1, endpoint=False, dtype=int)
     print(f"Saving models at steps: {t_saves}")
@@ -321,19 +324,18 @@ def train(
 
         # Save model
         if t_total in t_saves and trainer.train:
-            percent_progress = t_total / num_steps
+            percent_progress = f"{int(t_total * 100 / num_steps)}"
             imposter_model.dump_to_checkpoint(
-                save_directory_path / f"imposter_{imposter_model.model_type}_{percent_progress:.1%}.pt"
+                save_directory_path / f"imposter_{imposter_model.model_type}_{percent_progress}.pt"
             )
             crew_model.dump_to_checkpoint(
-                save_directory_path / f"crew_{crew_model.model_type}_{percent_progress:.1%}.pt"
+                save_directory_path / f"crew_{crew_model.model_type}_{percent_progress}.pt"
             )
 
         # Update Target DQNs
         if t_total % 1000 == 0:
-            # TODO: is this the best way to do this?
-            imposter_target_model = copy.deepcopy(imposter_model)
-            crew_target_model = copy.deepcopy(crew_model)
+            imposter_target_model.load_state_dict(imposter_model.state_dict())
+            crew_target_model.load_state_dict(crew_model.state_dict())
 
         # featurizing current trajectory
         featurizer.fit(
