@@ -362,6 +362,7 @@ class FlatFeaturizer(SequenceStateFeaturizer):
     def generate_featurized_states(self) -> Tuple[torch.Tensor, torch.Tensor]:
         featurized = []
         for agent_idx in range(self.env.n_agents):
+             
             featurized.append(
                 (
                     torch.zeros(self.B, self.T, 1).requires_grad_(True),

@@ -58,7 +58,7 @@ class ImposterTrainingGround(FourRoomEnv):
                     tuple: A boolean indicating if the game has ended and the associated reward.
         """
 
-        # all jobs are done imposter looses
+        # all jobs are done imposter loses
         # NOTE: this is only possible if n_jobs is not 0
         if self.n_jobs != 0 and self.completed_jobs.sum() == self.n_jobs:
             return True, self.game_end_reward

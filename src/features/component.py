@@ -228,8 +228,11 @@ class OneHotAgentPositionFeaturizer(ComponentFeaturizer):
         )
 
         for agent_idx, pos in enumerate(agent_positions):
-            one_hot_positions[agent_idx, pos[0]] = 1
-            one_hot_positions[agent_idx, self.env.n_cols + pos[1]] = 1
+            alive = state[self.env.state_fields[StateFields.ALIVE_AGENTS]][agent_idx]
+
+            if alive:
+                one_hot_positions[agent_idx, pos[0]] = 1
+                one_hot_positions[agent_idx, self.env.n_cols + pos[1]] = 1
 
         return one_hot_positions.view(-1)
 

@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import copy
 import tqdm
+
 from src.scheduler import ExponentialSchedule
 from src.environment import FourRoomEnv, StateFields
 from src.features.model_ready import SequenceStateFeaturizer, FeaturizerType
@@ -342,7 +343,8 @@ def train(
                         )
 
         next_state, reward, done, trunc, info = env.step(agent_actions=agent_actions)
-        G = G * gamma + reward
+
+        returns.append(reward)
 
         next_state_sequence = np.roll(state_sequence.copy(), -1, axis=0)
         next_state_sequence[-1] = env.flatten_state(next_state)
@@ -377,6 +379,10 @@ def train(
         # checking if the env needs to be reset
         if done or trunc:
 
+            G = np.zeros(env.n_agents)  # resetting G
+            for i in range(len(returns), 0, -1):
+                G = returns[i - 1] + gamma * G
+
             imposter_return = G[env.imposter_mask].mean().item()
             crew_return = G[~env.imposter_mask].mean().item()
 
@@ -390,11 +396,11 @@ def train(
             metrics.step(info_with_returns)
 
             pbar.set_description(
-                f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Imposter Loss: {losses[-1][0]:4.2f} | Crew Loss: {losses[-1][1]:4.2f}"
+                f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Imposter Loss: {losses[-1][0]:4.2f} | Crew Loss: {losses[-1][1]:4.2f} | Imposter Return: {imposter_return:4.2f} | Crew Return: {crew_return:4.2f}"
             )
-
+            
             # resetting episode
-            returns.append(G.tolist())
+            returns = []
             game_lengths.append(t_episode)
             G = torch.zeros(env.n_agents)
             t_episode = 0
@@ -431,6 +437,7 @@ def run_game(
     crew_model: Q_Estimator,
     featurizer: SequenceStateFeaturizer,
     sequence_length: int = 2,
+    debug: bool = True,
 ):
     with AmongUsVisualizer(env) as visualizer:
         state, _ = visualizer.reset()
@@ -463,6 +470,7 @@ def run_game(
             if not done and not paused:
                 featurizer.fit(state_sequence=torch.tensor(state_sequence).unsqueeze(0))
                 actions = []
+                action_strs = []
 
                 for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(
                     featurizer.generate_featurized_states()
@@ -471,13 +479,15 @@ def run_game(
                         action_probs = imposter_model(agent_spatial, agent_non_spatial)
                         action = action_probs.argmax().item()
                     else:
-                        action = (
-                            crew_model(agent_spatial, agent_non_spatial).argmax().item()
-                        )
-
+                        action = crew_model(agent_spatial, agent_non_spatial).argmax().item()
+                    action_strs.append(env.compute_action(agent_idx, action))
+                    
                     actions.append(action)
 
                 next_state, reward, done, truncated, _ = visualizer.step(actions)
+
+                if debug:
+                    print(f'Actions: {action_strs}')
 
                 next_state_sequence = np.roll(state_sequence.copy(), -1, axis=0)
                 next_state_sequence[-1] = env.flatten_state(next_state)
@@ -494,5 +504,5 @@ def run_game(
                 state = next_state
                 state_sequence = next_state_sequence
 
-            pygame.time.wait(1000)
+            pygame.time.wait(250)
         visualizer.close()

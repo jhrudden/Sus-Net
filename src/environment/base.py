@@ -356,7 +356,7 @@ class FourRoomEnv(Env):
         self.metrics.increment(SusMetrics.TOTAL_TIME_STEPS, 1)
 
         # initialize the agent reward array before computing all agent rewards
-        self.agent_rewards = np.ones(self.n_agents) * self.time_step_reward
+        self.agent_rewards = np.zeros(self.n_agents)
 
         # getting the order in which agent actions will be performed
         agent_action_order = list(range(self.n_agents))
@@ -375,6 +375,9 @@ class FourRoomEnv(Env):
         done = done or team_win
 
         self.agent_rewards = self._merge_rewards(self.agent_rewards, team_reward)
+
+        zero_rewards = self.agent_rewards == 0
+        self.agent_rewards[zero_rewards] = self.time_step_reward
 
         if self.t == self.max_time_steps - 1:
             truncated = True

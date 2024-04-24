@@ -5,6 +5,7 @@ from typing import List, Dict, Set
 import pygame
 import pathlib
 
+from src.metrics import SusMetrics
 from src.features.model_ready import SequenceStateFeaturizer
 from src.environment import FourRoomEnv
 
@@ -81,9 +82,9 @@ class AmongUsVisualizer:
     def _draw_win_text(self):
         big_font = pygame.font.Font(None, 36)  # Use a larger font size, e.g., 36
 
-        _, win_reward = self.env.check_win_condition()
-        win_text = "Sussy Victory!" if win_reward < 0 else "Crewmates win!"
-        text_color = (255, 0, 0) if win_reward < 0 else (0, 255, 0)
+        imposter_won = self.env.metrics.metrics[SusMetrics.IMPOSTER_WON]
+        win_text = "Sussy Victory!" if imposter_won else "Crewmates win!"
+        text_color = (255, 0, 0) if imposter_won else (0, 255, 0)
         win_surface = big_font.render(win_text, True, text_color)
         win_rect = win_surface.get_rect(
             center=(self.window_size // 2, self.window_size // 2)
@@ -142,6 +143,8 @@ class AmongUsVisualizer:
         """
         Draw voting state
         """
+        if self.env.__dict__.get("tag_counts") is None:
+            return
         vote_counts = self.env.tag_counts.flatten()
         vote_counts[self.env.alive_agents == 0] = -1
         voted = self.env.used_tag_actions.flatten() + 0
