@@ -9,6 +9,7 @@ import tqdm
 import pathlib
 from datetime import datetime
 import pandas as pd
+import json
 
 from src.scheduler import ExponentialSchedule
 from src.environment import FourRoomEnv, StateFields
@@ -17,6 +18,7 @@ from src.metrics import EpisodicMetricHandler, SusMetrics
 from src.replay_memory import ReplayBuffer
 from src.models.dqn import ModelType, Q_Estimator
 from src.visualize import AmongUsVisualizer
+from src.utils import GeneralEncoder
 
 BASE_REGISTRY_DIR = pathlib.Path(__file__).parent.parent / 'model_registry'
 
@@ -203,7 +205,10 @@ def run_experiment(
         'train_step_interval': train_step_interval,
     }
     
+    # save the configs
     pd.DataFrame(experiment_config).to_csv(experiment_dir / 'config.csv')
+    with open(experiment_dir / 'config.json', "w") as f:
+        json.dump(experiment_config, f, cls=GeneralEncoder, indent=4)
 
     # initializing models
     imposter_model = ModelType.build(imposter_model_type, **imposter_model_args)
