@@ -254,15 +254,122 @@ class DistanceToImposterFeaturizer(ComponentFeaturizer):
         agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
         imposter_diastances = torch.zeros((self.env.n_agents - 1) * 2)
 
+        alive_agents = state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
+
+        # NOTE: ONLY IF IMPOSTER IN 0th IDX
+        imposter_x, imposter_y = agent_positions[0]
+
+        idx = 0
+
+        for agent_idx, pos in enumerate(agent_positions):
+            if agent_idx != 0 and alive_agents[agent_idx]:
+                imposter_diastances[idx] = imposter_x - pos[0]
+                imposter_diastances[idx + 1] = imposter_y - pos[1]
+                idx += 2
+
+        return imposter_diastances.view(-1)
+
+    @property
+    def shape(self) -> torch.tensor:
+
+        return torch.tensor([(self.env.n_agents - 1) * 2], dtype=torch.int)
+
+
+class WallsFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+
+        agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+        imposter_x, imposter_y = agent_positions[0]
+
+        grid = torch.zeros((self.env.n_cols+2, self.env.n_rows+2))
+        grid[1:-1,1:-1] = torch.tensor(self.env.grid)
+
+        surrounding = grid[imposter_x:imposter_x+3, imposter_y:imposter_y+3].clone().view(-1)
+
+        return surrounding
+
+    @property
+    def shape(self) -> torch.tensor:
+        return torch.tensor([9], dtype=torch.int)
+
+
+class ImposterVSCrewRoomLocaionFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+
+        # first 4 bits for imposter room, 4 last for all crew
+        room_features = torch.zeros(8)
+
+        alive_agents = state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
+
+        for agent_idx, pos in enumerate(state[self.env.state_fields[StateFields.AGENT_POSITIONS]]):
+
+            if not alive_agents[agent_idx]:
+                continue
+            
+            rooms = torch.zeros(4)
+            for room_idx, room_mask in enumerate(ROOM_MASKS):
+                rooms[room_idx] = room_mask[pos[0], pos[1]]
+
+            if agent_idx == 0:
+                room_features[:4] += rooms
+            else:
+                room_features[4:] += rooms
+                
+        return room_features
+
+
+    @property
+    def shape(self) -> torch.tensor:
+        return torch.tensor([8], dtype=torch.int)
+
+    
+
+
+class ImposterScentFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+
+        agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+
+        # scent for each of the 4 directions
+        # left, right, top, bottom
+        imposter_scent = torch.zeros(4)
+
+        alive_agents = state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
+
         # NOTE: ONLY IF IMPOSTER IN 0th IDX
         imposter_x, imposter_y = agent_positions[0]
 
         for agent_idx, pos in enumerate(agent_positions):
-            if agent_idx != 0:
-                imposter_diastances[(agent_idx - 1) * 2] = pos[0] - imposter_x
-                imposter_diastances[(agent_idx - 1) * 2 + 1] = pos[1] - imposter_y
+            if agent_idx != 0 and alive_agents[agent_idx]:
+                dx = pos[0] - imposter_x
+                dy = pos[1] - imposter_y
 
-        return imposter_diastances.view(-1)
+                x_scent = (self.env.n_cols - dx) / self.env.n_cols
+                y_scent = (self.env.n_rows - dy) / self.env.n_rows
+
+                if x_scent > 0:
+                    imposter_scent[0] += x_scent
+                else:
+                    imposter_scent[1] += x_scent
+
+                if y_scent > 0:
+                    imposter_scent[2] += y_scent
+                else:
+                    imposter_scent[3] += y_scent
+
+        return imposter_scent.view(-1)
 
     @property
     def shape(self) -> torch.tensor:
