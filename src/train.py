@@ -254,7 +254,7 @@ def run_experiment(
     featurizer = FeaturizerType.build(featurizer_type, env=env)
 
     # run actual experiment
-    all_metrics, losses = train(
+    losses = train(
         env=env,
         metrics=metrics,
         num_steps=num_steps,
@@ -278,7 +278,7 @@ def run_experiment(
     # run experiment
     metrics.save_metrics(save_file_path=experiment_dir / "metrics.json")
 
-    return all_metrics, losses
+    return metrics, losses
 
 
 def train(
@@ -300,6 +300,7 @@ def train(
     returns = []
     game_lengths = []
     losses = []
+    rewards = []
 
     imposter_target_model = imposter_model.create_copy()
     crew_target_model = crew_model.create_copy()
@@ -319,7 +320,7 @@ def train(
             state
         )  # Initialize sequence with current state
 
-    G = torch.zeros(env.n_agents)
+    G = np.zeros(env.n_agents)
 
     # Iterate for a total of `num_steps` steps
     pbar = tqdm.trange(num_steps)
@@ -380,7 +381,8 @@ def train(
 
         next_state, reward, done, trunc, info = env.step(agent_actions=agent_actions)
 
-        returns.append(reward)
+        rewards.append(reward)
+        G = reward + gamma * G
 
         next_state_sequence = np.roll(state_sequence.copy(), -1, axis=0)
         next_state_sequence[-1] = env.flatten_state(next_state)
@@ -415,30 +417,22 @@ def train(
         # checking if the env needs to be reset
         if done or trunc:
 
-            G = np.zeros(env.n_agents)  # resetting G
-            for i in range(len(returns), 0, -1):
-                G = returns[i - 1] + gamma * G
-
             imposter_return = G[env.imposter_mask].mean().item()
             crew_return = G[~env.imposter_mask].mean().item()
 
-            info_with_returns = {
-                **info,
-                SusMetrics.AVG_IMPOSTER_RETURN: imposter_return,
-                SusMetrics.AVG_CREW_RETURN: crew_return,
-            }
+            returns.append([imposter_return, crew_return])
 
             # update metrics
-            metrics.step(info_with_returns)
+            metrics.step(info)
 
             pbar.set_description(
                 f"Episode: {i_episode} | Steps: {t_episode + 1} | Epsilon: {eps:4.2f} | Imposter Loss: {losses[-1][0]:4.2f} | Crew Loss: {losses[-1][1]:4.2f} | Imposter Return: {imposter_return:4.2f} | Crew Return: {crew_return:4.2f}"
             )
             
             # resetting episode
-            returns = []
+            rewards = []
             game_lengths.append(t_episode)
-            G = torch.zeros(env.n_agents)
+            G = np.zeros(env.n_agents)
             t_episode = 0
             i_episode += 1
 
@@ -462,7 +456,13 @@ def train(
         save_directory_path / f"crew_{crew_model.model_type}_100%.pt"
     )
 
-    return metrics.metrics, losses
+    returns = np.array(returns)
+    metrics.set({
+        SusMetrics.AVG_IMPOSTER_RETURNS: returns[:, 0].tolist(),
+        SusMetrics.AVG_CREW_RETURNS: returns[:, 1].tolist(),
+    })
+
+    return losses
 
 
 def run_game(

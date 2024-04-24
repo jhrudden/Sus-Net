@@ -1,6 +1,6 @@
 from enum import StrEnum, auto
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 import json
 
 
@@ -14,8 +14,8 @@ class SusMetrics(StrEnum):
     TOTAL_TIME_STEPS = auto()
     IMPOSTER_WON = auto()
     CREW_WON = auto()
-    AVG_CREW_RETURN = auto()
-    AVG_IMPOSTER_RETURN = auto()
+    AVG_CREW_RETURNS = auto()
+    AVG_IMPOSTER_RETURNS = auto()
     AVG_CREW_LOSS = auto()
     AVG_IMPOSTER_LOSS = auto()
 
@@ -75,6 +75,11 @@ class EpisodicMetricHandler:
     def step(self, metrics: Dict[SusMetrics, int]) -> None:
         for metric, value in metrics.items():
             self.metrics[metric].append(value)
+    
+    def set(self, metrics: Dict[SusMetrics, Any]) -> None:
+        for metric, values in metrics.items():
+            assert any(m.value == metric for m in SusMetrics), f"Invalid metric: {metric}"
+            self.metrics[metric] = values
 
     def compute(self) -> Dict[SusMetrics, float]:
         return {
