@@ -185,6 +185,11 @@ class FourRoomEnv(Env):
             ]
         )
 
+        # self.walls = np.array(
+        #     [
+        #     ]
+        # )
+
         self.grid = np.ones((9, 9), dtype=bool)
         if len(self.walls) != 0:
             self.grid[self.walls[:, 0], self.walls[:, 1]] = 0

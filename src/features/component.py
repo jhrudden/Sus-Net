@@ -398,3 +398,26 @@ class CoordinateAgentPositionsFeaturizer(ComponentFeaturizer):
     @property
     def shape(self) -> torch.tensor:
         return torch.tensor([self.env.n_agents * 2], dtype=torch.int)
+
+
+class AliveCrewFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+
+        alive_agents = state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
+        
+        alive_features = torch.zeros(self.env.n_agents-1)
+
+        for agent_idx, alive in enumerate(alive_agents):
+            if agent_idx > 0 and alive:
+                alive_features[agent_idx-1] = 1
+
+        return alive_features
+
+    @property
+    def shape(self) -> torch.tensor:
+        return torch.tensor([self.env.n_agents-1], dtype=torch.int)
+

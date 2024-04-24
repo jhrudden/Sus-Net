@@ -11,6 +11,8 @@ from src.features.component import (
     StateFieldFeaturizer,
     OneHotAgentPositionFeaturizer,
     CoordinateAgentPositionsFeaturizer,
+    AliveCrewFeaturizer,
+    WallsFeaturizer,
 )
 from src.environment.base import FourRoomEnv, StateFields
 
@@ -313,6 +315,8 @@ class FlatFeaturizer(SequenceStateFeaturizer):
             [   
                 # CoordinateAgentPositionsFeaturizer(env=env),
                 OneHotAgentPositionFeaturizer(env=env),
+                AliveCrewFeaturizer(env=env),
+                WallsFeaturizer(env=env),
                 # DistanceToImposterFeaturizer(env=env),
             ]
         )
