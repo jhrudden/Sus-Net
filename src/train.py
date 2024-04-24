@@ -1,11 +1,14 @@
 from enum import StrEnum, auto
-import os
+from typing import Optional
 import numpy as np
 import pygame
 import torch
 import torch.nn.functional as F
 import copy
 import tqdm
+import pathlib
+from datetime import datetime
+import pandas as pd
 
 from src.scheduler import ExponentialSchedule
 from src.environment import FourRoomEnv, StateFields
@@ -15,6 +18,7 @@ from src.replay_memory import ReplayBuffer
 from src.models.dqn import ModelType, Q_Estimator
 from src.visualize import AmongUsVisualizer
 
+BASE_REGISTRY_DIR = pathlib.Path(__file__).parent.parent / 'model_registry'
 
 class OptimizerType(StrEnum):
     ADAM = auto()
@@ -162,12 +166,45 @@ def run_experiment(
     scheduler_time_steps: int = 1_000_000,
     train_imposter: bool = True,
     train_crew: bool = True,
-    experiment_save_path: str | None = None,
+    experiment_base_dir: Optional[pathlib.Path] = None,
     optimizer_type: OptimizerType = OptimizerType.ADAM,
     learning_rate: float = 0.0001,
     train_step_interval: int = 5,
     num_checkpoint_saves: int = 5,
 ):
+    # create a experiment dir
+    if experiment_base_dir is None:        experiment_base_dir = BASE_REGISTRY_DIR / "experiments"
+    
+    # current time, gamma, learning rate
+    experiment_dir = experiment_base_dir / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+
+    # save the experiment configuration
+    experiment_config = {
+        'num_steps': num_steps,
+        'imposter_model_args': imposter_model_args,
+        'crew_model_args': crew_model_args,
+        'imposter_model_type': imposter_model_type,
+        'crew_model_type': crew_model_type,
+        'featurizer_type': featurizer_type,
+        'sequence_length': sequence_length,
+        'replay_buffer_size': replay_buffer_size,
+        'replay_prepopulate_steps': replay_prepopulate_steps,
+        'batch_size': batch_size,
+        'gamma': gamma,
+        'scheduler_start_eps': scheduler_start_eps,
+        'scheduler_end_eps': scheduler_end_eps,
+        'scheduler_time_steps': scheduler_time_steps,
+        'train_imposter': train_imposter,
+        'train_crew': train_crew,
+        'experiment_base_dir': experiment_base_dir,
+        'optimizer_type': optimizer_type,
+        'learning_rate': learning_rate,
+        'train_step_interval': train_step_interval,
+    }
+    
+    pd.DataFrame(experiment_config).to_csv(experiment_dir / 'config.csv')
+
     # initializing models
     imposter_model = ModelType.build(imposter_model_type, **imposter_model_args)
     crew_model = ModelType.build(crew_model_type, **crew_model_args)
@@ -222,7 +259,7 @@ def run_experiment(
         featurizer=featurizer,
         imposter_model=imposter_model,
         crew_model=crew_model,
-        save_directory_path=experiment_save_path,
+        save_directory_path=experiment_dir,
         train_step_interval=train_step_interval,
         batch_size=batch_size,
         gamma=gamma,
@@ -236,8 +273,7 @@ def run_experiment(
     print(f"Average Metrics: {avg_metrics}")
 
     # run experiment
-    if experiment_save_path is not None:
-        metrics.save_metrics(save_file_path=experiment_save_path / "metrics.json")
+    metrics.save_metrics(save_file_path=experiment_dir / "metrics.json")
 
     return all_metrics, losses
 
@@ -251,7 +287,7 @@ def train(
     imposter_model: Q_Estimator,
     crew_model: Q_Estimator,
     scheduler: ExponentialSchedule,
-    save_directory_path: str,
+    save_directory_path: pathlib.Path,
     trainer: DQNTeamTrainer,
     train_step_interval: int = 5,
     batch_size: int = 32,
@@ -263,7 +299,8 @@ def train(
     losses = []
 
     # Initialize structures to store the models at different stages of training
-    t_saves = np.linspace(0, num_steps, num_saves - 1, endpoint=False)
+    t_saves = np.linspace(0, num_steps, num_saves - 1, endpoint=False, dtype=int)
+    print(f"Saving models at steps: {t_saves}")
 
     i_episode = 0  # Use this to indicate the index of the current episode
     t_episode = 0  # Use this to indicate the time-step inside current episode
@@ -284,18 +321,12 @@ def train(
 
         # Save model
         if t_total in t_saves and trainer.train:
-            percent_progress = np.round(t_total / num_steps * 100)
+            percent_progress = t_total / num_steps
             imposter_model.dump_to_checkpoint(
-                os.path.join(
-                    save_directory_path,
-                    f"imposter_{imposter_model.model_type}_{percent_progress}%.pt",
-                )
+                save_directory_path / f"imposter_{imposter_model.model_type}_{percent_progress:.1%}.pt"
             )
             crew_model.dump_to_checkpoint(
-                os.path.join(
-                    save_directory_path,
-                    f"crew_{crew_model.model_type}_{percent_progress}%.pt",
-                )
+                save_directory_path / f"crew_{crew_model.model_type}_{percent_progress:.1%}.pt"
             )
 
         # Update Target DQNs
@@ -420,12 +451,10 @@ def train(
 
     # saving final model states
     imposter_model.dump_to_checkpoint(
-        os.path.join(
-            save_directory_path, f"imposter_{imposter_model.model_type}_100%.pt"
-        )
+        save_directory_path / f"imposter_{imposter_model.model_type}_100%.pt"
     )
     crew_model.dump_to_checkpoint(
-        os.path.join(save_directory_path, f"crew_{crew_model.model_type}_100%.pt")
+        save_directory_path / f"crew_{crew_model.model_type}_100%.pt"
     )
 
     return metrics.metrics, losses

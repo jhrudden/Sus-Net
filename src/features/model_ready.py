@@ -318,8 +318,8 @@ class FlatFeaturizer(SequenceStateFeaturizer):
     @property
     def featurized_shape(self):
         return (
-            self.env.flattened_state_size,
-            self.env.flattened_state_size,
+            1,
+            self.featurizer.shape + self.env.flattened_state_size,
         )  # current returning zeros for spatial features (this is a hack, need to fix this)
 
     def fit(self, state_sequence: torch.Tensor) -> None:
