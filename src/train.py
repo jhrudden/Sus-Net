@@ -470,20 +470,24 @@ def run_game(
     sequence_length: int = 2,
     debug: bool = True,
 ):
-    with AmongUsVisualizer(env) as visualizer:
+    def reset_game(visualizer):
         state, _ = visualizer.reset()
         replay_memory = ReplayBuffer(
             max_size=10_000,
             trajectory_size=sequence_length,
-            state_size=env.flattened_state_size,
-            n_imposters=env.n_imposters,
-            n_agents=env.n_agents,
+            state_size=visualizer.env.flattened_state_size,
+            n_imposters=visualizer.env.n_imposters,
+            n_agents=visualizer.env.n_agents,
         )
         state_sequence = np.zeros(
             (replay_memory.trajectory_size, replay_memory.state_size)
         )
         for i in range(replay_memory.trajectory_size):
-            state_sequence[i] = env.flatten_state(state)
+            state_sequence[i] = visualizer.env.flatten_state(state)
+        return state, replay_memory, state_sequence
+    
+    with AmongUsVisualizer(env) as visualizer:
+        state, replay_memory, state_sequence = reset_game(visualizer)
 
         stop_game = False
         done = False
@@ -497,6 +501,11 @@ def run_game(
                 ):
                     stop_game = True
                     break
+                # if you click r, reset the game
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
+                    state, replay_memory, state_sequence = reset_game(visualizer)
+                    paused = False
+                    done = False
 
             if not done and not paused:
                 featurizer.fit(state_sequence=torch.tensor(state_sequence).unsqueeze(0))

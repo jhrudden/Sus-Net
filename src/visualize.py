@@ -36,6 +36,7 @@ class AmongUsVisualizer:
         self.env = env
         self.grid_size = env.n_cols
         self.window_size = self.grid_size * CELL_SIZE + GAME_PADDING * 2
+        self.game_over = False
         pygame.init()
         pygame.font.init()
 
