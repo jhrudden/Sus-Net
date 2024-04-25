@@ -4,6 +4,7 @@ import torch
 from typing import List, Dict, Set
 import pygame
 import pathlib
+import json
 
 from src.metrics import SusMetrics
 from src.features.model_ready import SequenceStateFeaturizer
@@ -416,3 +417,66 @@ class StateSequenceVisualizer:
                 fontsize=16,
             )
         plt.show()
+
+def moving_average(data, *, window_size=50):
+    """Smooths 1-D data array using a moving average."""
+    assert data.ndim == 1
+    kernel = np.ones(window_size)
+    smooth_data = np.convolve(data, kernel, 'valid') / window_size
+    return smooth_data
+
+def plot_experiment_metrics(exp, label_attr=None, label_name=None):
+    fig, axes = plt.subplots(3, 1, figsize=(10, 15))
+    for version_dir in sorted(exp.iterdir(), key=lambda x: x.name):
+        if not version_dir.is_dir():
+            continue
+
+        config_path = version_dir / 'config.json'
+        metrics_path = version_dir / 'metrics.json'
+
+        if not config_path.exists() or not metrics_path.exists():
+            continue
+
+        config = json.loads(config_path.read_text())
+        metrics = json.loads(metrics_path.read_text())
+
+        # Process and plot returns
+        returns = np.array(metrics.get(SusMetrics.AVG_IMPOSTER_RETURNS, []))
+        if returns.size > 0:
+            returns_cumsum = np.cumsum(returns)
+            axes[0].plot(returns_cumsum, label=f"{label_name}={config.get(label_attr, version_dir.name)}")
+
+        # Process and plot episode lengths
+        episode_lengths = np.array(metrics.get(SusMetrics.TOTAL_TIME_STEPS, []))
+        if episode_lengths.size > 0:
+            lengths = np.repeat(np.arange(len(episode_lengths)), episode_lengths)
+            axes[1].plot(np.arange(len(lengths)), lengths, label=f"{label_name}={config.get(label_attr, version_dir.name)}")
+
+        # Process and plot losses
+        losses = np.array(metrics.get(SusMetrics.IMPOSTER_LOSS, []))
+        if losses.size > 0:
+            axes[2].plot(losses, alpha=0.35, label=f"{label_name}={config.get(label_attr, version_dir.name)}")
+
+    # Setting common titles and labels
+    axes[0].set_title('Expected Returns')
+    axes[0].set_xlabel('Episode Number')
+    axes[0].set_ylabel('Cumulative Return')
+    axes[0].legend()
+
+    axes[1].set_title('Episode Length by Time Step')
+    axes[1].set_xlabel('Time Step')
+    axes[1].set_ylabel('Episode Number')
+    axes[1].legend()
+
+    axes[2].set_title('Imposter Loss')
+    axes[2].set_xlabel('Batch Number')
+    axes[2].set_ylabel('Loss')
+    axes[2].legend()
+
+    # add title based on experiment name
+    fig.suptitle(exp.name)
+    # save figure to experiment directory
+    plt.savefig(exp / f'{exp.name}_metrics.png')
+
+    plt.tight_layout()
+    plt.show()
