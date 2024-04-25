@@ -34,7 +34,7 @@ class ImposterTrainingGround(FourRoomEnv):
         random_state=None,
         debug=False,
         shuffle_imposter_index=False,
-        include_walls: bool = False,
+        include_walls: bool = True,
     ):
         """
         Initializes the ImposterTrainingGround environment.
