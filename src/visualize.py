@@ -1,3 +1,4 @@
+from collections import defaultdict
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
@@ -640,3 +641,52 @@ def setup_experiment_buttons(base_path, identifier_attribute, experiments, featu
         
         row = widgets.HBox([exp_label, buttons_box], layout=widgets.Layout(align_items='center', justify_content='flex-start'))
         display(row)
+
+def plot_episode_lengths(root_dir, separator_strings, seperator_labels=None):
+    assert len(separator_strings) == len(seperator_labels) or seperator_labels is None, "Seperator labels must be the same length as the separator strings"
+    root_dir = pathlib.Path(root_dir)
+    episode_lengths_by_exp = defaultdict(list)
+    filled = set()
+
+    for experiment_dir in root_dir.iterdir():
+        for separator in separator_strings:
+            if separator in experiment_dir.name and experiment_dir.name not in filled:
+                filled.add(experiment_dir.name)
+                exp_name = experiment_dir.name
+                label = None
+                best_run_lengths = []
+                max_length = 0
+
+                for run_dir in experiment_dir.iterdir():
+                    if run_dir.is_dir():
+                        metrics_path = run_dir / 'metrics.json'
+                        config_path = run_dir / 'config.json'
+                        if metrics_path.exists() and config_path.exists():
+                            metrics = json.loads(metrics_path.read_text())
+                            episode_lengths = metrics.get(SusMetrics.TOTAL_TIME_STEPS, [])
+                            if len(episode_lengths) > max_length:
+                                config = json.loads(config_path.read_text())
+                                label = f"$\\gamma$={config.get('gamma', 0.0):.2f} | target_update_interval={config.get('target_update_interval', 1000)}"
+                                max_length = len(episode_lengths)
+                                best_run_lengths = episode_lengths
+                if best_run_lengths:
+                    episode_lengths_by_exp[separator].append((best_run_lengths, label, exp_name))
+                break  # Break out of the separator loop, as we've found a match
+    
+    fig, ax = plt.subplots(2, 1, figsize=(10, 15))
+    for sep_idx, separator in enumerate(episode_lengths_by_exp.keys()):
+        for best_run_lengths, label, exp_name in episode_lengths_by_exp[separator]:
+            lengths = np.repeat(np.arange(len(best_run_lengths)), best_run_lengths)
+            ax[sep_idx].plot(np.arange(len(lengths)), lengths, label=f'{exp_name} {label}')
+        
+        if seperator_labels:
+            separator_title = seperator_labels[sep_idx]
+        else:
+            separator_title = separator.replace('_', ' ').title()
+
+        ax[sep_idx].set_title(f'Episode Length by Time Step ({separator_title})') 
+        ax[sep_idx].set_xlabel('Time Step')
+        ax[sep_idx].set_ylabel('Episode Number')
+        ax[sep_idx].legend()
+
+    plt.show()
