@@ -14,3 +14,4 @@ dependencies:
     - torchinfo
     - tqdm
     - pandas
+    - ipywidgets
