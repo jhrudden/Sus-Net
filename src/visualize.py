@@ -5,7 +5,11 @@ from typing import List, Dict, Set
 import pygame
 import pathlib
 import json
+import ipywidgets as widgets
+from IPython.display import display
 
+from src.replay_memory import ReplayBuffer
+from src.models.dqn import ModelType, Q_Estimator
 from src.metrics import SusMetrics
 from src.features.model_ready import SequenceStateFeaturizer
 from src.environment import FourRoomEnv
@@ -480,3 +484,147 @@ def plot_experiment_metrics(exp, label_attr=None, label_name=None):
 
     plt.tight_layout()
     plt.show()
+
+
+def run_game(
+    env: FourRoomEnv,
+    imposter_model: Q_Estimator,
+    crew_model: Q_Estimator,
+    featurizer: SequenceStateFeaturizer,
+    sequence_length: int = 2,
+    debug: bool = True,
+):
+    def reset_game(visualizer):
+        state, _ = visualizer.reset()
+        replay_memory = ReplayBuffer(
+            max_size=10_000,
+            trajectory_size=sequence_length,
+            state_size=visualizer.env.flattened_state_size,
+            n_imposters=visualizer.env.n_imposters,
+            n_agents=visualizer.env.n_agents,
+        )
+        state_sequence = np.zeros(
+            (replay_memory.trajectory_size, replay_memory.state_size)
+        )
+        for i in range(replay_memory.trajectory_size):
+            state_sequence[i] = visualizer.env.flatten_state(state)
+        return state, replay_memory, state_sequence
+    
+    with AmongUsVisualizer(env) as visualizer:
+        state, replay_memory, state_sequence = reset_game(visualizer)
+
+        stop_game = False
+        done = False
+        paused = False
+        while not stop_game:
+            for event in pygame.event.get():
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                    paused = not paused
+                if event.type == pygame.QUIT or (
+                    event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
+                ):
+                    stop_game = True
+                    break
+                # if you click r, reset the game
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
+                    state, replay_memory, state_sequence = reset_game(visualizer)
+                    paused = False
+                    done = False
+
+            if not done and not paused:
+                featurizer.fit(state_sequence=torch.tensor(state_sequence).unsqueeze(0))
+                actions = []
+                action_strs = []
+
+                for agent_idx, (agent_spatial, agent_non_spatial) in enumerate(
+                    featurizer.generate_featurized_states()
+                ):
+                    if agent_idx in env.imposter_idxs:
+                        action_probs = imposter_model(agent_spatial, agent_non_spatial)
+                        action = action_probs.argmax().item()
+                    else:
+                        action = crew_model(agent_spatial, agent_non_spatial).argmax().item()
+                    action_strs.append(env.compute_action(agent_idx, action))
+                    
+                    actions.append(action)
+
+                next_state, reward, done, truncated, _ = visualizer.step(actions)
+
+                if debug:
+                    print(f'Actions: {action_strs}')
+
+                next_state_sequence = np.roll(state_sequence.copy(), -1, axis=0)
+                next_state_sequence[-1] = env.flatten_state(next_state)
+
+                replay_memory.add(
+                    state=state_sequence,
+                    action=actions,
+                    reward=reward,
+                    done=done,
+                    next_state=next_state_sequence,
+                    imposters=env.imposter_idxs,
+                )
+
+                state = next_state
+                state_sequence = next_state_sequence
+
+            pygame.time.wait(250)
+        visualizer.close()
+
+
+def setup_experiment_buttons(base_path, identifier_attribute, experiments, featurizers):
+    
+    max_exp_name_length = max(len(exp) for exp in experiments)
+    min_width = max_exp_name_length * 8  # Set a minimum width based on the longest experiment name
+
+    def button_callback(button, buttons_list):
+        # Disable all buttons in the same list to prevent multiple runs
+        for b in buttons_list:
+            b.disabled = True
+        v_path = button.v_path
+        config_path = v_path / 'config.json'
+        exp = button.exp
+        with open(config_path, 'r') as file:
+            config = json.load(file)
+        
+        imposter_model = ModelType.build(config['imposter_model_type'], pretrained_model_path= v_path / f'imposter_{config.get('imposter_model_type')}_100%.pt')
+        crew_model = ModelType.build(config['crew_model_type'], n_actions=config['crew_model_args']['n_actions'])
+        featurizer = featurizers[exp]
+        env = featurizer.env
+        run_game(env, imposter_model, crew_model, featurizer, sequence_length=config['sequence_length'])
+
+        for b in buttons_list:
+            b.disabled = False
+
+
+    for exp in experiments:
+        buttons = []
+        exp_path = base_path / exp
+        if not exp_path.exists():
+            continue
+        for version_dir in sorted(exp_path.iterdir(), key=lambda x: x.name):
+            config_path = version_dir / 'config.json'
+            if not config_path.exists():
+                continue
+            
+            with open(config_path, 'r') as file:
+                config = json.load(file)
+            
+            button_label = f"{identifier_attribute}={config.get(identifier_attribute, 'Unknown')}"
+            button = widgets.Button(description=button_label)
+            button.v_path = version_dir
+            button.exp = exp
+            buttons.append(button)
+        
+        # Pass the current list of buttons as a default argument to the lambda
+        for button in buttons:
+            button.on_click(lambda event, b=buttons: button_callback(event, b))
+        
+        buttons_box = widgets.HBox(buttons, layout=widgets.Layout(flex_flow='row wrap', align_items='flex-start'))
+        
+        # Set a fixed width for the label to align them
+        exp_label = widgets.Label(value=f"Experiment: {exp}", 
+                                  layout=widgets.Layout(width=f'{min_width}px'))
+        
+        row = widgets.HBox([exp_label, buttons_box], layout=widgets.Layout(align_items='center', justify_content='flex-start'))
+        display(row)
