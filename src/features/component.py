@@ -424,3 +424,60 @@ class AliveCrewFeaturizer(ComponentFeaturizer):
     def shape(self) -> torch.tensor:
         return torch.tensor([self.env.n_agents-1], dtype=torch.int)
 
+
+class L1CrewFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+        
+        
+        alive_agents = state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
+        agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+
+        # NOTE: ONLY IF IMPOSTER IN 0th IDX
+        imposter_x, imposter_y = agent_positions[0]
+
+        l1_crew = torch.ones(self.env.n_crew) * -1
+
+        for agent_idx, pos in enumerate(agent_positions):
+            if agent_idx > 0 and alive_agents[agent_idx]:
+                l1_crew[agent_idx-1] = abs(imposter_x - pos[0]) + abs(imposter_y - pos[1])
+
+        return l1_crew
+
+    @property
+    def shape(self) -> torch.tensor:
+        return torch.tensor([self.env.n_crew], dtype=torch.int)
+
+
+class ClosestAliveCrewFeaturizer(ComponentFeaturizer):
+
+    def __init__(self, env: FourRoomEnv):
+        super().__init__(env)
+
+    def extract_features(self, state: Tuple) -> torch.Tensor:
+        
+        
+        alive_agents = state[self.env.state_fields[StateFields.ALIVE_AGENTS]]
+        agent_positions = state[self.env.state_fields[StateFields.AGENT_POSITIONS]]
+
+        # NOTE: ONLY IF IMPOSTER IN 0th IDX
+        imposter_x, imposter_y = agent_positions[0]
+
+        l1_crew = torch.ones(self.env.n_crew) * self.env.n_cols + self.env.n_rows
+        closest = torch.zeros(self.env.n_crew)
+
+        for agent_idx, pos in enumerate(agent_positions):
+            if agent_idx > 0 and alive_agents[agent_idx]:
+                l1_crew[agent_idx-1] = abs(imposter_x - pos[0]) + abs(imposter_y - pos[1])
+
+        closest[torch.argmin(l1_crew)] = 1
+
+        return closest
+
+    @property
+    def shape(self) -> torch.tensor:
+        return torch.tensor([self.env.n_crew], dtype=torch.int)
+
