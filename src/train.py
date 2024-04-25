@@ -172,6 +172,7 @@ def run_experiment(
     learning_rate: float = 0.0001,
     train_step_interval: int = 5,
     num_checkpoint_saves: int = 5,
+    target_update_interval: int = 10_000,
 ):
     # create a experiment dir
     if experiment_base_dir is None:        experiment_base_dir = BASE_REGISTRY_DIR / "experiments"
@@ -202,6 +203,7 @@ def run_experiment(
         'optimizer_type': optimizer_type,
         'learning_rate': learning_rate,
         'train_step_interval': train_step_interval,
+        "target_update_interval": target_update_interval,
     }
     
     # save the configs
@@ -266,6 +268,7 @@ def run_experiment(
         scheduler=scheduler,
         trainer=trainer,
         num_saves=num_checkpoint_saves,
+        target_update_interval=target_update_interval,
     )
 
     avg_metrics = metrics.compute()
@@ -293,6 +296,7 @@ def train(
     batch_size: int = 32,
     gamma: float = 0.99,
     num_saves: int = 5,
+    target_update_interval: int = 10_000,
 ):
     returns = []
     game_lengths = []
@@ -334,7 +338,7 @@ def train(
             )
 
         # Update Target DQNs
-        if t_total % 1000 == 0:
+        if t_total % target_update_interval == 0:
             imposter_target_model.load_state_dict(imposter_model.state_dict())
             crew_target_model.load_state_dict(crew_model.state_dict())
 

@@ -443,23 +443,25 @@ def plot_experiment_metrics(exp, label_attr=None, label_name=None):
 
         config = json.loads(config_path.read_text())
         metrics = json.loads(metrics_path.read_text())
+        label = f"{label_name}={config.get(label_attr, 0.0):.2f} | target_update_freq={config.get('target_update_interval', 1000)}"
 
         # Process and plot returns
         returns = np.array(metrics.get(SusMetrics.AVG_IMPOSTER_RETURNS, []))
         if returns.size > 0:
             returns_cumsum = np.cumsum(returns)
-            axes[0].plot(returns_cumsum, label=f"{label_name}={config.get(label_attr, version_dir.name)}")
+            axes[0].plot(returns_cumsum, label=label)
 
         # Process and plot episode lengths
         episode_lengths = np.array(metrics.get(SusMetrics.TOTAL_TIME_STEPS, []))
         if episode_lengths.size > 0:
             lengths = np.repeat(np.arange(len(episode_lengths)), episode_lengths)
-            axes[1].plot(np.arange(len(lengths)), lengths, label=f"{label_name}={config.get(label_attr, version_dir.name)}")
+            axes[1].plot(np.arange(len(lengths)), lengths, label=label)
+             
 
         # Process and plot losses
         losses = np.array(metrics.get(SusMetrics.IMPOSTER_LOSS, []))
         if losses.size > 0:
-            axes[2].plot(losses, alpha=0.35, label=f"{label_name}={config.get(label_attr, version_dir.name)}")
+            axes[2].plot(losses, alpha=0.35, label=label)
 
     # Setting common titles and labels
     axes[0].set_title('Expected Returns')
@@ -467,14 +469,24 @@ def plot_experiment_metrics(exp, label_attr=None, label_name=None):
     axes[0].set_ylabel('Cumulative Return')
     axes[0].legend()
 
+    x_ticks = np.arange(0, len(lengths) + 100_000, 100_000)
+    x_ticks_labels = [f'{x // 100_000}' for x in x_ticks]
+
     axes[1].set_title('Episode Length by Time Step')
-    axes[1].set_xlabel('Time Step')
+    axes[1].set_xlabel('Time Step (x100k)')
     axes[1].set_ylabel('Episode Number')
+    axes[1].set_xticks(x_ticks)
+    axes[1].set_xticklabels(x_ticks_labels)
     axes[1].legend()
 
+
+    x_ticks = np.arange(0, len(losses) + 10_000, 10_000)
+    x_ticks_labels = [f'{x // 10_000}' for x in x_ticks]
     axes[2].set_title('Imposter Loss')
-    axes[2].set_xlabel('Batch Number')
+    axes[2].set_xlabel('Batch Number (x10k)')
     axes[2].set_ylabel('Loss')
+    axes[2].set_xticks(x_ticks)
+    axes[2].set_xticklabels(x_ticks_labels)
     axes[2].legend()
 
     # add title based on experiment name
