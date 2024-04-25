@@ -684,9 +684,14 @@ def plot_episode_lengths(root_dir, separator_strings, seperator_labels=None):
         else:
             separator_title = separator.replace('_', ' ').title()
 
+        x_ticks = np.arange(0, len(lengths) + 100_000, 100_000)
+        x_ticks_labels = [f'{x // 100_000}' for x in x_ticks]
         ax[sep_idx].set_title(f'Episode Length by Time Step ({separator_title})') 
-        ax[sep_idx].set_xlabel('Time Step')
         ax[sep_idx].set_ylabel('Episode Number')
+        ax[sep_idx].set_xlabel('Time Step (x100k)')
+        ax[sep_idx].set_xticks(x_ticks)
+        ax[sep_idx].set_xticklabels(x_ticks_labels)
         ax[sep_idx].legend()
+
 
     plt.show()
