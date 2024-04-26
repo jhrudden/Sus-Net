@@ -17,12 +17,12 @@ pre-commit install
 
 3. Have fun!
 
-### Possible Experiments:
+### 1v1
 
-1. Dummy state (that we pad when sequence length is greater than state history) all zeros vs start state repeated
+#### Not Walled
 
-2. DQ updates for dead agents (when should an agent's episode end)
+<iframe src="https://giphy.com/embed/zTJkxHjrrk4OJmRgrj" width="480" height="270" frameBorder="0" class="giphy-embed" allowFullScreen></iframe>
 
-3. Number of timesteps in trajectory!!!! (1 should be bad... 2 shoudl be better.... 3 shoudlf be sick!!!!)
+#### Walled
 
-4. Add explicit voting area...
+<iframe src="https://giphy.com/embed/spw7zV13LO1zxhj7Gj" width="480" height="270" frameBorder="0" class="giphy-embed" allowFullScreen></iframe>
