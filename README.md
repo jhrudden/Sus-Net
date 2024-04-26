@@ -36,3 +36,10 @@ pre-commit install
 
 #### Walled
 ![Screen Recording 2024-04-25 at 8 32 16 PM](https://github.com/jhrudden/Sus-Net/assets/90374336/b095a75e-1025-4252-8d2b-2eca40f99d71)
+
+
+<!-- Not Walled Image with Custom Size -->
+<img src="https://github.com/jhrudden/Sus-Net/assets/90374336/d8e87499-283c-4f20-9ed4-e0a9af7080f0" width="800" height="450" alt="Not Walled">
+
+<!-- Walled Image with Custom Size -->
+<img src="https://github.com/jhrudden/Sus-Net/assets/90374336/b095a75e-1025-4252-8d2b-2eca40f99d71" width="800" height="450" alt="Walled">
