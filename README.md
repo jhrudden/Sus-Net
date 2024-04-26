@@ -31,9 +31,12 @@ pre-commit install
 ### 1v2
 
 #### Not Walled
+<p align="center">
 <img src="https://github.com/jhrudden/Sus-Net/assets/90374336/d8e87499-283c-4f20-9ed4-e0a9af7080f0" width="500" height="500" alt="Not Walled">
+</p>
 
 
 #### Walled
+<p align="center">
 <img src="https://github.com/jhrudden/Sus-Net/assets/90374336/b095a75e-1025-4252-8d2b-2eca40f99d71" width="500" height="500" alt="Walled">
-
+</p>
