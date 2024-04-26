@@ -21,11 +21,11 @@ pre-commit install
 
 #### Not Walled
 
-<iframe src="https://giphy.com/embed/zTJkxHjrrk4OJmRgrj" width="480" height="270" frameBorder="0" class="giphy-embed" allowFullScreen></iframe>
+![no_walls_1v1](https://github.com/jhrudden/Sus-Net/assets/90374336/bb8b3d14-5e85-4b24-b280-6348c45f38dd)
 
 #### Walled
 
-<iframe src="https://giphy.com/embed/spw7zV13LO1zxhj7Gj" width="480" height="270" frameBorder="0" class="giphy-embed" allowFullScreen></iframe>
+![walls_1v1](https://github.com/jhrudden/Sus-Net/assets/90374336/d3795621-39e5-4abf-950e-da1c08df0b55)
 
 
 ### 1v2
