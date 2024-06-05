@@ -3,8 +3,8 @@
 In this project we explore the application of Deep Q-Learning to the popular mobile game Among Us. We create a simulation of the game containing two teams, imposters and crew members. While crew members seek to complete tasks throughout the map, imposters aim to eliminate the crew memebrs anb sabotage tasks without being voted out. Our simple 2D representation of the game features agents that are able to move, do jobs, sabotage, kill, and vote. Checkout our [Presentation](./assets/SusNet_Presentation.pdf) and [Final Report](./assets/CS5180_Report.pdf) for more details!
 
 <br/><br/>
-<img width="1050" alt="Screenshot 2024-06-05 at 12 15 12 AM" src="https://github.com/dimavrem22/Sus-Net/assets/90374336/7c3df09a-7aa8-4885-82ef-96115eca26d7">
-
+<img width="900" alt="Screenshot 2024-06-05 at 12 15 12 AM" src="https://github.com/dimavrem22/Sus-Net/assets/90374336/7c3df09a-7aa8-4885-82ef-96115eca26d7">
+<br/><br/>
 
 ## Setup
 
