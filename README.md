@@ -1,5 +1,7 @@
 # Sus-Net (Playing Among Us with RL)
 
+In this project we explore the application of Deep Q-Learning to the popular mobile game Among Us. We create a simulation of the game containing two teams, imposters and crew members. While crew members seek to complete tasks throughout the map, imposters aim to eliminate the crew memebrs anb sabotage tasks without being voted out. We create a simple 2D representation of the game in which agents are able to move, do jobs, sabotage, kill, and vote. Checkout our [Presentation](./assets/SusNetPresentation.pdf) and our [Final Report](./assets/SCS5180_Report.pdf) for more details!
+
 ### Setup
 
 1. Creating python virtual environment
