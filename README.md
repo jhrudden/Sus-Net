@@ -1,4 +1,4 @@
-# Sus-Net
+# Sus-Net (Playing Among Us with Reinforcement Learning)
 
 ### Setup
 
